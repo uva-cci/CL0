@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug lexer_test (Rust)",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/deps/lexer_test-f9463ad3312298ff",
+            "args": ["--nocapture"],
+            "cwd": "${workspaceFolder}",
+            "env": {},
+            "sourceLanguages": ["rust"]
+        }
+    ]
+}
