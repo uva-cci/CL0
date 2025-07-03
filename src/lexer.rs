@@ -44,7 +44,7 @@ pub fn lexer<'src>()
         "and" => Token::And,
         "or" => Token::Or,
         "not" => Token::Not,
-        _ => Token::Identifier(identifier),
+        _ => Token::Descriptor(identifier),
     });
 
     let token = multi_symbol.or(symbol).or(ident);

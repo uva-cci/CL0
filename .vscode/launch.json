@@ -5,7 +5,7 @@
             "name": "Debug lexer_test (Rust)",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/deps/lexer_test-f9463ad3312298ff",
+            "program": "${workspaceFolder}/target/debug/deps/parser_test-62a03595a2944490",
             "args": ["--nocapture"],
             "cwd": "${workspaceFolder}",
             "env": {},

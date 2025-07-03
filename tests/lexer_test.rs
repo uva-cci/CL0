@@ -12,11 +12,11 @@ fn test_basic_lexer() {
         tokens,
         vec![
             Token::Hash,
-            Token::Identifier("click"),
+            Token::Descriptor("click"),
             Token::FatArrow,
-            Token::Identifier("a"),
+            Token::Descriptor("a"),
             Token::Semicolon,
-            Token::Identifier("b"),
+            Token::Descriptor("b"),
         ]
     );
 }

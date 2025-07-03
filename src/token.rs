@@ -57,5 +57,5 @@ pub enum Token<'src> {
     ThinArrow,
 
     /// A variable/function name, like `foo` or `my_var`
-    Identifier(&'src str),
+    Descriptor(&'src str),
 }
