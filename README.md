@@ -1,6 +1,6 @@
 # CL0 Project
 
-A Rust project the CL0 Engine.
+A Rust project for the CL0 Engine.
 
 ---
 
@@ -72,8 +72,5 @@ You should then see the status of every unit test that was created.
 ## Limitations
 
 Currently there is an issue with referring to a compound as an atomic conditional type. Because of this, the compound statement functionally is disabled.
-
----
-
 
 ---
