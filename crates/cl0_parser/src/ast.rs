@@ -6,9 +6,9 @@ pub enum Condition<'src> {
     /// Logical negation (e.g., `not loaded`)
     Not(Box<Self>),
     /// A conjunction (AND) of two conditions (e.g., `loaded AND ready`)
-    And(Vec<Self>),
+    Conjunction(Vec<Self>),
     /// A disjunction (OR) of two conditions (e.g., `loaded OR ready`)
-    Or(Vec<Self>),
+    Disjunction(Vec<Self>),
     /// Parenthesized condition (e.g., `(loaded AND ready)`)
     Parentheses(Box<Self>),
 }

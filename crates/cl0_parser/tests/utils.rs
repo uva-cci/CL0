@@ -1,5 +1,5 @@
 use chumsky::Parser;
-use CL0::{lexer::lexer, token::Token};
+use cl0_parser::{lexer::lexer, token::Token};
 
 /// Lex `src` and return the raw `Vec<Token>` (panicking on lexer‐errors).
 pub fn lex_tokens(src: &str) -> Vec<Token<'_>> {

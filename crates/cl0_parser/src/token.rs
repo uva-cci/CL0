@@ -58,4 +58,7 @@ pub enum Token<'src> {
 
     /// A variable/function name, like `foo` or `my_var`
     Descriptor(&'src str),
+
+    /// `as` keyword for aliasing, e.g., `foo as bar`
+    As
 }

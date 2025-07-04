@@ -44,6 +44,7 @@ pub fn lexer<'src>()
         "and" => Token::And,
         "or" => Token::Or,
         "not" => Token::Not,
+        "as" => Token::As,
         _ => Token::Descriptor(identifier),
     });
 

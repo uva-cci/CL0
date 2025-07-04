@@ -1,6 +1,6 @@
 use chumsky::Parser;
-use CL0::lexer::lexer;
-use CL0::token::Token;
+use cl0_parser::lexer::lexer;
+use cl0_parser::token::Token;
 
 #[test]
 fn test_basic_lexer() {
@@ -19,6 +19,15 @@ fn test_basic_lexer() {
             Token::Descriptor("b"),
         ]
     );
+}
+
+#[test]
+fn negate_condition() {
+    let input = "not condition";
+    let tokens = lexer().parse(input).unwrap();
+    let tokens: Vec<_> = tokens.into_iter().map(|(tok, _)| tok).collect();
+
+    assert_eq!(tokens, vec![Token::Not, Token::Descriptor("condition")]);
 }
 
 // #[test]

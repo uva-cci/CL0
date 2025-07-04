@@ -1,8 +1,17 @@
 [package]
-name = "CL0"
+name = "cl0"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ariadne = "0.5.1"
-chumsky = "0.10.1"
+cl0_parser = { path = "./crates/cl0_parser" }
+
+[workspace]
+members = [
+    "crates/cl0_parser",
+    "."
+]
+
+[[bin]]
+name = "cl0_parser"
+path = "src/main.rs"
