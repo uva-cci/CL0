@@ -369,7 +369,8 @@ where
 
     // Declarative rules: CC or CT
     // CC rule:    premise -> condition
-    let cc_rule = condition_parser.clone()
+    let cc_rule = condition_parser
+        .clone()
         .or_not()
         .then_ignore(just(Token::ThinArrow))
         .then(atomic_condition_parser.clone())
@@ -386,7 +387,8 @@ where
         .labelled("cc rule");
 
     // CT rule:    premise -o condition
-    let ct_rule = condition_parser.clone()
+    let ct_rule = condition_parser
+        .clone()
         .or_not()
         .then_ignore(just(Token::DashO))
         .then(condition_parser.clone())
