@@ -142,10 +142,113 @@ pub fn condition_parser<'tokens, 'src: 'tokens, I>()
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
+    rule_and_atomic_condition_and_compound_and_condition_parser().3
+}
+
+/// A Parser for atomic conditions in the CL0 language.
+/// This parser currently handles:
+/// - Primitive conditions: `foo`, `bar`, etc.
+/// - Compound conditions: `{ rule1. rule2. }` or `{ rule1. rule2. } as alias`
+pub fn atomic_condition_parser<'tokens, 'src: 'tokens, I>()
+-> impl Parser<'tokens, I, Spanned<AtomicCondition<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
++ Clone
+where
+    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
+{
+    rule_and_atomic_condition_and_compound_and_condition_parser().1
+}
+
+/// A Parser for compounds in the CL0 language.
+/// This parser currently handles:
+/// - compounds: `{ rule1. rule2. }` or `{ rule1. rule2. } as alias`
+pub fn compound_parser<'tokens, 'src: 'tokens, I>()
+-> impl Parser<'tokens, I, Spanned<Compound<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+where
+    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
+{
+    rule_and_atomic_condition_and_compound_and_condition_parser().2
+}
+
+/// A Parser for primitive conditions in the CL0 language.
+/// This parser currently handles:
+/// - Primitive conditions: just an identifier (e.g., `foo`, `bar`)
+pub fn primitive_condition_parser<'tokens, 'src: 'tokens, I>() -> impl Parser<
+    'tokens,
+    I,
+    Spanned<PrimitiveCondition<'src>>,
+    extra::Err<Rich<'tokens, Token<'src>, Span>>,
+> + Clone
+where
+    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
+{
+    let ident = select! { Token::Descriptor(name) => name }.labelled("descriptor");
+
+    // Primitive condition: just an identifier
+    ident
+        .map_with(|name, span| (PrimitiveCondition::Var(name), span.span()))
+        .labelled("primitive condition")
+}
+
+/// A parser for rules in the CL0 language.
+/// This parser currently handles:
+/// - Reactive rules: ECA (Event-Condition-Action) or CA (Condition-Action)
+/// - Declarative rules: CC (premise -> condition) or CT (premise -o condition)
+/// - Case-based rules: => action
+/// - Fact-based rules: condition
+pub fn rule_parser<'tokens, 'src: 'tokens, I>()
+-> impl Parser<'tokens, I, Spanned<Rule<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+where
+    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
+{
+    rule_and_atomic_condition_and_compound_and_condition_parser().0
+}
+
+fn rule_and_atomic_condition_and_compound_and_condition_parser<'tokens, 'src: 'tokens, I>() -> (
+    impl Parser<'tokens, I, Spanned<Rule<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone,
+    impl Parser<
+        'tokens,
+        I,
+        Spanned<AtomicCondition<'src>>,
+        extra::Err<Rich<'tokens, Token<'src>, Span>>,
+    > + Clone,
+    impl Parser<'tokens, I, Spanned<Compound<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+    + Clone,
+    impl Parser<'tokens, I, Spanned<Condition<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+    + Clone,
+)
+where
+    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
+{
+    let mut rule_parser = Recursive::declare();
+    let mut atomic_condition_parser = Recursive::declare();
+    let mut compound_parser = Recursive::declare();
+    let mut condition_parser = Recursive::declare();
+
+    compound_parser.define(
+        just(Token::LeftCBracket)
+            .ignore_then(rule_parser.clone().repeated().collect::<Vec<_>>())
+            .then_ignore(just(Token::RightCBracket))
+            .then(
+                just(Token::As)
+                    .ignore_then(select! { Token::Descriptor(alias) => alias })
+                    .or_not(),
+            )
+            .map_with(|(rules, alias), span| {
+                (
+                    Compound {
+                        rules: (rules.into_iter().map(|(r, _)| r).collect()),
+                        alias: alias,
+                    },
+                    span.span(),
+                )
+            }),
+    );
+
     // Recursive condition parser for complex conditions
-    recursive(|condition| {
+    let c_parser = recursive(|condition| {
         // Atomic condition parser (base case)
-        let atomic_condition = atomic_condition_parser::<I>()
+        let atomic_condition = atomic_condition_parser
+            .clone()
             .map_with(|(cond, _), span| (Condition::Atomic(cond), span.span()))
             .labelled("atomic condition");
 
@@ -204,95 +307,33 @@ where
             .labelled("disjunction condition");
 
         or.labelled("condition")
-    })
-}
+    });
 
-/// A Parser for atomic conditions in the CL0 language.
-/// This parser currently handles:
-/// - Primitive conditions: `foo`, `bar`, etc.
-pub fn atomic_condition_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<AtomicCondition<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
-+ Clone
-where
-    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
-{
+    condition_parser.define(c_parser);
+
     // Primitive condition parser
     let primitive_condition = primitive_condition_parser::<I>()
         .map_with(|(cond, span), _| (AtomicCondition::Primitive(cond), span))
         .labelled("primitive condition");
 
-    // // Compound condition parser
-    // let compound_condition = compound_parser::<I>()
-    //     .map_with(|(cond, span), _| (AtomicCondition::Compound(cond), span))
-    //     .labelled("compound condition");
+    // Compound condition parser
+    let compound_condition = compound_parser
+        .clone()
+        .map_with(|(cond, span), _| (AtomicCondition::Compound(cond), span))
+        .labelled("compound condition");
 
-    primitive_condition.labelled("atomic condition")
-}
+    atomic_condition_parser.define(
+        primitive_condition
+            .or(compound_condition)
+            .labelled("atomic condition"),
+    );
 
-/// A Parser for compounds in the CL0 language.
-/// This parser currently handles:
-/// - compounds: `{ rule1. rule2. }` or `{ rule1. rule2. } as alias`
-pub fn compound_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<Compound<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
-where
-    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
-{
-    just(Token::LeftCBracket)
-        .ignore_then(rule_parser::<I>().repeated().collect::<Vec<_>>())
-        .then_ignore(just(Token::RightCBracket))
-        .then(
-            just(Token::As)
-                .ignore_then(select! { Token::Descriptor(alias) => alias })
-                .or_not(),
-        )
-        .map_with(|(rules, alias), span| {
-            (
-                Compound {
-                    rules: (rules.into_iter().map(|(r, _)| r).collect()),
-                    alias: alias,
-                },
-                span.span(),
-            )
-        })
-}
-
-/// A Parser for primitive conditions in the CL0 language.
-/// This parser currently handles:
-/// - Primitive conditions: just an identifier (e.g., `foo`, `bar`)
-pub fn primitive_condition_parser<'tokens, 'src: 'tokens, I>() -> impl Parser<
-    'tokens,
-    I,
-    Spanned<PrimitiveCondition<'src>>,
-    extra::Err<Rich<'tokens, Token<'src>, Span>>,
-> + Clone
-where
-    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
-{
-    let ident = select! { Token::Descriptor(name) => name }.labelled("descriptor");
-
-    // Primitive condition: just an identifier
-    ident
-        .map_with(|name, span| (PrimitiveCondition::Var(name), span.span()))
-        .labelled("primitive condition")
-}
-
-/// A parser for rules in the CL0 language.
-/// This parser currently handles:
-/// - Reactive rules: ECA (Event-Condition-Action) or CA (Condition-Action)
-/// - Declarative rules: CC (premise -> condition) or CT (premise -o condition)
-/// - Case-based rules: => action
-/// - Fact-based rules: condition
-pub fn rule_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<Rule<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
-where
-    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
-{
     // Reactive rules: ECA or CA
     // ECA rule:    #event : condition => action        #event => action
     let eca_rule = primitive_event_parser::<I>()
         .then(
             just(Token::Colon)
-                .ignore_then(condition_parser::<I>())
+                .ignore_then(condition_parser.clone())
                 .or_not(),
         )
         .then_ignore(just(Token::FatArrow))
@@ -312,7 +353,7 @@ where
 
     // CA rule:   : condition => action
     let ca_rule = just(Token::Colon)
-        .ignore_then(condition_parser::<I>())
+        .ignore_then(condition_parser.clone())
         .then_ignore(just(Token::FatArrow))
         .then(action_parser::<I>())
         .then_ignore(just(Token::Dot))
@@ -328,10 +369,10 @@ where
 
     // Declarative rules: CC or CT
     // CC rule:    premise -> condition
-    let cc_rule = condition_parser::<I>()
+    let cc_rule = condition_parser.clone()
         .or_not()
         .then_ignore(just(Token::ThinArrow))
-        .then(atomic_condition_parser::<I>())
+        .then(atomic_condition_parser.clone())
         .then_ignore(just(Token::Dot))
         .map_with(|(premise, (condition, _)), span| {
             (
@@ -345,10 +386,10 @@ where
         .labelled("cc rule");
 
     // CT rule:    premise -o condition
-    let ct_rule = condition_parser::<I>()
+    let ct_rule = condition_parser.clone()
         .or_not()
         .then_ignore(just(Token::DashO))
-        .then(condition_parser::<I>())
+        .then(condition_parser.clone())
         .then_ignore(just(Token::Dot))
         .map_with(|(premise, (condition, _)), span| {
             (
@@ -371,16 +412,26 @@ where
         .labelled("case");
 
     // Fact-based rule:     condition .
-    let fact_rule = atomic_condition_parser::<I>()
+    let fact_rule = atomic_condition_parser
+        .clone()
         .then_ignore(just(Token::Dot))
         .map_with(|(condition, _), span| (Rule::Fact { condition }, span.span()))
         .labelled("fact");
 
-    reactive_rule
-        .or(declarative_rule)
-        .or(case_rule)
-        .or(fact_rule)
-        .labelled("rule")
+    rule_parser.define(
+        reactive_rule
+            .or(declarative_rule)
+            .or(case_rule)
+            .or(fact_rule)
+            .labelled("rule"),
+    );
+
+    (
+        rule_parser,
+        atomic_condition_parser,
+        compound_parser,
+        condition_parser,
+    )
 }
 
 /// A Parser for the entire CL0 language.
