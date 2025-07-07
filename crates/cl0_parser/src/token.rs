@@ -1,3 +1,5 @@
+use std::fmt;
+
 /// A token in the source language.
 /// This is used after lexing to distinguish keywords, operators, identifiers, and literals.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -22,7 +24,7 @@ pub enum Token<'src> {
     LeftParenthesis,
     /// Symbol for ending a condition grouping, eg. `(<condition>)`
     RightParenthesis,
-    
+
     /// Symbol for starting a event grouping, eg. `{<event>}`
     LeftCBracket,
     /// Symbol for ending a event grouping, eg. `{<event>}`
@@ -60,5 +62,34 @@ pub enum Token<'src> {
     Descriptor(&'src str),
 
     /// `as` keyword for aliasing, e.g., `foo as bar`
-    As
+    As,
+}
+
+impl<'src> fmt::Display for Token<'src> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Token::Hash => write!(f, "#"),
+            Token::Colon => write!(f, ":"),
+            Token::Semicolon => write!(f, ";"),
+            Token::Seq => write!(f, "seq"),
+            Token::Par => write!(f, "par"),
+            Token::Alt => write!(f, "alt"),
+            Token::LeftParenthesis => write!(f, "("),
+            Token::RightParenthesis => write!(f, ")"),
+            Token::LeftCBracket => write!(f, "{{"),
+            Token::RightCBracket => write!(f, "}}"),
+            Token::Comma => write!(f, ","),
+            Token::And => write!(f, "and"),
+            Token::Or => write!(f, "or"),
+            Token::Not => write!(f, "not"),
+            Token::Plus => write!(f, "+"),
+            Token::Minus => write!(f, "-"),
+            Token::Dot => write!(f, "."),
+            Token::DashO => write!(f, "-o"),
+            Token::FatArrow => write!(f, "=>"),
+            Token::ThinArrow => write!(f, "->"),
+            Token::Descriptor(s) => write!(f, "\"{}\"", s),
+            Token::As => write!(f, "as"),
+        }
+    }
 }

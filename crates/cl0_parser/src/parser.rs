@@ -438,7 +438,7 @@ where
 
 /// A Parser for the entire CL0 language.
 pub fn program_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Vec<Rule<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+-> impl Parser<'tokens, I, Vec<Spanned<Rule<'src>>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
@@ -447,6 +447,5 @@ where
         .repeated()
         .collect::<Vec<_>>()
         .then_ignore(end())
-        .map_with(|rules, _| rules.into_iter().map(|(r, _)| r).collect())
         .labelled("program")
 }
