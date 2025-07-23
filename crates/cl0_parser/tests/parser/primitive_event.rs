@@ -5,7 +5,7 @@ use crate::utils::lex_tokens;
 /// Assert that `parser` succeeds on `src` and returns exactly `want`.
 fn assert_parses_to(
     src: &str,
-    want: PrimitiveEvent<'_>,
+    want: PrimitiveEvent,
 ) {
     let tokens = lex_tokens(src);
     let parsed = primitive_event_parser()
@@ -38,7 +38,7 @@ fn assert_fails(src: &str) {
 
 #[test]
 fn create_valid_trigger() {
-    assert_parses_to("#trigger", PrimitiveEvent::Trigger("trigger"));
+    assert_parses_to("#trigger", PrimitiveEvent::Trigger("trigger".to_string()));
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn create_valid_trigger_fail() {
 
 #[test]
 fn create_valid_production() {
-    assert_parses_to("+produce", PrimitiveEvent::Production(PrimitiveCondition::Var("produce")));
+    assert_parses_to("+produce", PrimitiveEvent::Production(PrimitiveCondition::Var("produce".to_string())));
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn create_valid_production_fail() {
 
 #[test]
 fn create_valid_consumption() {
-    assert_parses_to("-consume", PrimitiveEvent::Consumption(PrimitiveCondition::Var("consume")));
+    assert_parses_to("-consume", PrimitiveEvent::Consumption(PrimitiveCondition::Var("consume".to_string())));
 }
 
 #[test]

@@ -11,7 +11,7 @@ pub type Spanned<T> = (T, Span);
 /// - Primitive actions: `#event`, `+event`, `-event`
 /// - Action sequences: `a; b; c`, `a, b, c`, `a par b par c`, `a seq b seq c`, `a alt b alt c`
 pub fn action_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<Action<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+-> impl Parser<'tokens, I, Spanned<Action>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
@@ -88,7 +88,7 @@ where
 /// - Production events: `+event`
 /// - Consumption events: `-event`
 pub fn primitive_event_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<PrimitiveEvent<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+-> impl Parser<'tokens, I, Spanned<PrimitiveEvent>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
 + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
@@ -98,7 +98,7 @@ where
     // Trigger Event:
     let trigger = just(Token::Hash)
         .ignore_then(descriptor.clone())
-        .map_with(|name, span| (PrimitiveEvent::Trigger(name), span.span()))
+        .map_with(|name, span| (PrimitiveEvent::Trigger(name.to_string()), span.span()))
         .labelled("trigger action");
 
     // Production Event:
@@ -106,7 +106,7 @@ where
         .ignore_then(descriptor.clone())
         .map_with(|name, span| {
             (
-                PrimitiveEvent::Production(PrimitiveCondition::Var(name)),
+                PrimitiveEvent::Production(PrimitiveCondition::Var(name.to_string())),
                 span.span(),
             )
         })
@@ -117,7 +117,7 @@ where
         .ignore_then(descriptor.clone())
         .map_with(|name, span| {
             (
-                PrimitiveEvent::Consumption(PrimitiveCondition::Var(name)),
+                PrimitiveEvent::Consumption(PrimitiveCondition::Var(name.to_string())),
                 span.span(),
             )
         })
@@ -137,7 +137,7 @@ where
 /// - Conjunction: `condition and condition`, `condition, condition`
 /// - Disjunction: `condition or condition`, `condition; condition`
 pub fn condition_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<Condition<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+-> impl Parser<'tokens, I, Spanned<Condition>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
 + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
@@ -150,7 +150,7 @@ where
 /// - Primitive conditions: `foo`, `bar`, etc.
 /// - Compound conditions: `{ rule1. rule2. }` or `{ rule1. rule2. } as alias`
 pub fn atomic_condition_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<AtomicCondition<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+-> impl Parser<'tokens, I, Spanned<AtomicCondition>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
 + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
@@ -162,7 +162,7 @@ where
 /// This parser currently handles:
 /// - compounds: `{ rule1. rule2. }` or `{ rule1. rule2. } as alias`
 pub fn compound_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<Compound<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+-> impl Parser<'tokens, I, Spanned<Compound>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
@@ -175,7 +175,7 @@ where
 pub fn primitive_condition_parser<'tokens, 'src: 'tokens, I>() -> impl Parser<
     'tokens,
     I,
-    Spanned<PrimitiveCondition<'src>>,
+    Spanned<PrimitiveCondition>,
     extra::Err<Rich<'tokens, Token<'src>, Span>>,
 > + Clone
 where
@@ -185,7 +185,7 @@ where
 
     // Primitive condition: just an identifier
     ident
-        .map_with(|name, span| (PrimitiveCondition::Var(name), span.span()))
+        .map_with(|name, span| (PrimitiveCondition::Var(name.to_string()), span.span()))
         .labelled("primitive condition")
 }
 
@@ -196,7 +196,7 @@ where
 /// - Case-based rules: => action
 /// - Fact-based rules: condition
 pub fn rule_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<Rule<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+-> impl Parser<'tokens, I, Spanned<Rule>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
@@ -204,16 +204,16 @@ where
 }
 
 fn rule_and_atomic_condition_and_compound_and_condition_parser<'tokens, 'src: 'tokens, I>() -> (
-    impl Parser<'tokens, I, Spanned<Rule<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone,
+    impl Parser<'tokens, I, Spanned<Rule>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone,
     impl Parser<
         'tokens,
         I,
-        Spanned<AtomicCondition<'src>>,
+        Spanned<AtomicCondition>,
         extra::Err<Rich<'tokens, Token<'src>, Span>>,
     > + Clone,
-    impl Parser<'tokens, I, Spanned<Compound<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+    impl Parser<'tokens, I, Spanned<Compound>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
     + Clone,
-    impl Parser<'tokens, I, Spanned<Condition<'src>>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+    impl Parser<'tokens, I, Spanned<Condition>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
     + Clone,
 )
 where
@@ -237,7 +237,7 @@ where
                 (
                     Compound {
                         rules: (rules.into_iter().map(|(r, _)| r).collect()),
-                        alias: alias,
+                        alias: alias.map(|a| a.to_string()),
                     },
                     span.span(),
                 )
@@ -438,7 +438,7 @@ where
 
 /// A Parser for the entire CL0 language.
 pub fn program_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Vec<Spanned<Rule<'src>>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+-> impl Parser<'tokens, I, Vec<Spanned<Rule>>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {

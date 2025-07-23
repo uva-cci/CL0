@@ -7,7 +7,7 @@ use cl0_parser::{
 use crate::utils::lex_tokens;
 
 /// Assert that `parser` succeeds on `src` and returns exactly `want`.
-fn assert_parses_to(src: &str, want: AtomicCondition<'_>) {
+fn assert_parses_to(src: &str, want: AtomicCondition) {
     let tokens = lex_tokens(src);
     let parsed = atomic_condition_parser().parse(tokens.as_slice());
     assert!(
@@ -36,7 +36,7 @@ fn assert_fails(src: &str) {
 fn atomic_var() {
     assert_parses_to(
         "foo",
-        AtomicCondition::Primitive(PrimitiveCondition::Var("foo")),
+        AtomicCondition::Primitive(PrimitiveCondition::Var("foo".to_string())),
     );
 }
 
@@ -51,9 +51,9 @@ fn atomic_var_compound_with_alias() {
         "{ test. } as alias",
         AtomicCondition::Compound(Compound {
             rules: vec![Rule::Fact {
-                condition: AtomicCondition::Primitive(PrimitiveCondition::Var("test")),
+                condition: AtomicCondition::Primitive(PrimitiveCondition::Var("test".to_string())),
             }],
-            alias: Some("alias"),
+            alias: Some("alias".to_string()),
         }),
     );
 }

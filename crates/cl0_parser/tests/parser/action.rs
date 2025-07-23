@@ -6,7 +6,7 @@ use cl0_parser::{
 use chumsky::Parser;
 
 /// Assert that `parser` succeeds on `src` and returns exactly `want`.
-fn assert_parses_to(src: &str, want: Action<'_>) {
+fn assert_parses_to(src: &str, want: Action) {
     let tokens = lex_tokens(src);
     let parsed = action_parser().parse(tokens.as_slice());
     assert!(
@@ -37,7 +37,7 @@ fn create_valid_primitive_action() {
     assert_parses_to(
         "+primitive",
         Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var(
-            "primitive",
+            "primitive".to_string(),
         ))),
     );
     println!("Parsed valid primitive action successfully.");
@@ -52,8 +52,8 @@ fn simple_create_valid_list_action_seq() {
     assert_parses_to(
         "+a; #b",
         Action::List(ActionList::Sequence(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a"))),
-            Action::Primitive(PrimitiveEvent::Trigger("b")),
+            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
         ])),
     );
 }
@@ -63,8 +63,8 @@ fn simple_create_valid_list_action_seq_trailing() {
     assert_parses_to(
         "+a; #b;",
         Action::List(ActionList::Sequence(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a"))),
-            Action::Primitive(PrimitiveEvent::Trigger("b")),
+            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
         ])),
     );
 }
@@ -74,8 +74,8 @@ fn simple_create_valid_list_action_seq_keyword() {
     assert_parses_to(
         "+a seq #b",
         Action::List(ActionList::Sequence(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a"))),
-            Action::Primitive(PrimitiveEvent::Trigger("b")),
+            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
         ])),
     );
 }
@@ -85,12 +85,12 @@ fn create_valid_list_action_seq() {
     assert_parses_to(
         "+a; #b;-c;-d;  #e; +f",
         Action::List(ActionList::Sequence(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a"))),
-            Action::Primitive(PrimitiveEvent::Trigger("b")),
-            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("c"))),
-            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("d"))),
-            Action::Primitive(PrimitiveEvent::Trigger("e")),
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("f"))),
+            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
+            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("c".to_string()))),
+            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("d".to_string()))),
+            Action::Primitive(PrimitiveEvent::Trigger("e".to_string())),
+            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("f".to_string()))),
         ])),
     );
 }
@@ -100,8 +100,8 @@ fn simple_create_valid_list_action_par() {
     assert_parses_to(
         "+a, #b",
         Action::List(ActionList::Parallel(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a"))),
-            Action::Primitive(PrimitiveEvent::Trigger("b")),
+            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
         ])),
     );
 }
@@ -111,8 +111,8 @@ fn simple_create_valid_list_action_par_keyword() {
     assert_parses_to(
         "+a par #b",
         Action::List(ActionList::Parallel(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a"))),
-            Action::Primitive(PrimitiveEvent::Trigger("b")),
+            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
         ])),
     );
 }
@@ -122,12 +122,12 @@ fn create_valid_list_action_par() {
     assert_parses_to(
         "+a, #b,-c,-d,  #e, +f",
         Action::List(ActionList::Parallel(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a"))),
-            Action::Primitive(PrimitiveEvent::Trigger("b")),
-            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("c"))),
-            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("d"))),
-            Action::Primitive(PrimitiveEvent::Trigger("e")),
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("f"))),
+            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
+            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("c".to_string()))),
+            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("d".to_string()))),
+            Action::Primitive(PrimitiveEvent::Trigger("e".to_string())),
+            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("f".to_string()))),
         ])),
     );
 }
@@ -137,8 +137,8 @@ fn simple_create_valid_list_action_alt() {
     assert_parses_to(
         "+a alt #b",
         Action::List(ActionList::Alternative(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a"))),
-            Action::Primitive(PrimitiveEvent::Trigger("b")),
+            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
         ])),
     );
 }
@@ -148,12 +148,12 @@ fn create_valid_list_action_alt() {
     assert_parses_to(
         "+a alt #b alt -c alt -d alt  #e alt +f",
         Action::List(ActionList::Alternative(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a"))),
-            Action::Primitive(PrimitiveEvent::Trigger("b")),
-            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("c"))),
-            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("d"))),
-            Action::Primitive(PrimitiveEvent::Trigger("e")),
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("f"))),
+            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
+            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("c".to_string()))),
+            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("d".to_string()))),
+            Action::Primitive(PrimitiveEvent::Trigger("e".to_string())),
+            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("f".to_string()))),
         ])),
     );
 }
@@ -165,22 +165,22 @@ fn create_valid_list_action_order_of_ops() {
         Action::List(ActionList::Sequence(vec![
             Action::List(ActionList::Alternative(vec![
                 Action::List(ActionList::Parallel(vec![
-                    Action::Primitive(PrimitiveEvent::Trigger("a")),
-                    Action::Primitive(PrimitiveEvent::Trigger("b")),
+                    Action::Primitive(PrimitiveEvent::Trigger("a".to_string())),
+                    Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
                 ])),
                 Action::List(ActionList::Parallel(vec![
-                    Action::Primitive(PrimitiveEvent::Trigger("c")),
-                    Action::Primitive(PrimitiveEvent::Trigger("d")),
+                    Action::Primitive(PrimitiveEvent::Trigger("c".to_string())),
+                    Action::Primitive(PrimitiveEvent::Trigger("d".to_string())),
                 ])),
             ])),
             Action::List(ActionList::Alternative(vec![
                 Action::List(ActionList::Parallel(vec![
-                    Action::Primitive(PrimitiveEvent::Trigger("e")),
-                    Action::Primitive(PrimitiveEvent::Trigger("f")),
+                    Action::Primitive(PrimitiveEvent::Trigger("e".to_string())),
+                    Action::Primitive(PrimitiveEvent::Trigger("f".to_string())),
                 ])),
                 Action::List(ActionList::Parallel(vec![
-                    Action::Primitive(PrimitiveEvent::Trigger("g")),
-                    Action::Primitive(PrimitiveEvent::Trigger("h")),
+                    Action::Primitive(PrimitiveEvent::Trigger("g".to_string())),
+                    Action::Primitive(PrimitiveEvent::Trigger("h".to_string())),
                 ])),
             ])),
         ])),

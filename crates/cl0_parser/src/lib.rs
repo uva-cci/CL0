@@ -95,9 +95,9 @@ pub fn parse_and_print(src: &str) {
     }
 
     // If parsing was successful, print the AST
-    let output: &Vec<(ast::Rule<'_>, SimpleSpan)> =
+    let output: &Vec<(ast::Rule, SimpleSpan)> =
         parse_result.output().expect("No output from parser");
 
-    let rules: Vec<ast::Rule<'_>> = output.iter().map(|(rule, _span)| rule.clone()).collect();
+    let rules: Vec<ast::Rule> = output.iter().map(|(rule, _span)| rule.clone()).collect();
     println!("{:#?}", rules);
 }

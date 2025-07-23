@@ -9,9 +9,9 @@ cl0_parser = { path = "./crates/cl0_parser" }
 [workspace]
 members = [
     "crates/cl0_parser",
-    "."
-]
-
+    "crates/cl0_node",
+    "."]
+    
 [[bin]]
 name = "cl0_parser"
 path = "src/main.rs"

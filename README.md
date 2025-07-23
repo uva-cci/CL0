@@ -69,4 +69,8 @@ cargo test
 
 You should then see the status of every unit test that was created.
 
+## Limitations
+
+Currently there is an issue with referring to a compound as an atomic conditional type. Because of this, the compound statement functionally is disabled.
+
 ---

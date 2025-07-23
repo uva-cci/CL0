@@ -6,7 +6,7 @@ use cl0_parser::{
 use chumsky::Parser;
 
 /// Assert that `parser` succeeds on `src` and returns exactly `want`.
-fn assert_parses_to(src: &str, want: Condition<'_>) {
+fn assert_parses_to(src: &str, want: Condition) {
     let tokens = lex_tokens(src);
     println!("{:#?}", tokens);
     let parsed = condition_parser().parse(tokens.as_slice());
@@ -38,7 +38,7 @@ fn create_valid_atomic_condition() {
     assert_parses_to(
         "condition",
         Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
-            "condition",
+            "condition".to_string(),
         ))),
     );
 }
@@ -53,7 +53,7 @@ fn create_valid_not_condition() {
     assert_parses_to(
         "not condition",
         Condition::Not(Box::new(Condition::Atomic(AtomicCondition::Primitive(
-            PrimitiveCondition::Var("condition"),
+            PrimitiveCondition::Var("condition".to_string()),
         )))),
     );
 }
@@ -68,7 +68,7 @@ fn create_valid_not_not_condition() {
     assert_parses_to(
         "not not condition",
         Condition::Not(Box::new(Condition::Not(Box::new(Condition::Atomic(
-            AtomicCondition::Primitive(PrimitiveCondition::Var("condition")),
+            AtomicCondition::Primitive(PrimitiveCondition::Var("condition".to_string())),
         ))))),
     );
 }
@@ -83,7 +83,7 @@ fn create_valid_parentheses_condition() {
     assert_parses_to(
         "(condition)",
         Condition::Parentheses(Box::new(Condition::Atomic(AtomicCondition::Primitive(
-            PrimitiveCondition::Var("condition"),
+            PrimitiveCondition::Var("condition".to_string()),
         )))),
     );
 }
@@ -97,7 +97,7 @@ fn create_complex_valid_parentheses_condition() {
     assert_parses_to(
         "(not condition)",
         Condition::Parentheses(Box::new(Condition::Not(Box::new(Condition::Atomic(
-            AtomicCondition::Primitive(PrimitiveCondition::Var("condition")),
+            AtomicCondition::Primitive(PrimitiveCondition::Var("condition".to_string())),
         ))))),
     );
 }
@@ -107,8 +107,8 @@ fn create_valid_conjunction_condition() {
     assert_parses_to(
         "a , b",
         Condition::Conjunction(vec![
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a"))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b"))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a".to_string()))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b".to_string()))),
         ]),
     );
 }
@@ -118,8 +118,8 @@ fn create_valid_conjunction_condition_keyword() {
     assert_parses_to(
         "a and b",
         Condition::Conjunction(vec![
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a"))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b"))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a".to_string()))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b".to_string()))),
         ]),
     );
 }
@@ -149,11 +149,11 @@ fn create_valid_long_conjunction_condition() {
     assert_parses_to(
         "a , b, c , d,e",
         Condition::Conjunction(vec![
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a"))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b"))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("c"))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("d"))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("e"))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a".to_string()))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b".to_string()))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("c".to_string()))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("d".to_string()))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("e".to_string()))),
         ]),
     );
 }
@@ -163,8 +163,8 @@ fn create_valid_disjunction_condition() {
     assert_parses_to(
         "a ; b",
         Condition::Disjunction(vec![
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a"))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b"))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a".to_string()))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b".to_string()))),
         ]),
     );
 }
@@ -174,8 +174,8 @@ fn create_valid_disjunction_condition_keyword() {
     assert_parses_to(
         "a or b",
         Condition::Disjunction(vec![
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a"))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b"))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a".to_string()))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b".to_string()))),
         ]),
     );
 }
@@ -185,11 +185,11 @@ fn create_valid_long_disjunction_condition() {
     assert_parses_to(
         "a ; b; c ; d;e",
         Condition::Disjunction(vec![
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a"))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b"))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("c"))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("d"))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("e"))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a".to_string()))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b".to_string()))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("c".to_string()))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("d".to_string()))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("e".to_string()))),
         ]),
     );
 }
@@ -200,16 +200,16 @@ fn create_valid_order_ops_conjunction_disjunction_condition() {
         "a , b ; c , d; e, f",
         Condition::Disjunction(vec![
             Condition::Conjunction(vec![
-                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a"))),
-                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b"))),
+                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a".to_string()))),
+                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b".to_string()))),
             ]),
             Condition::Conjunction(vec![
-                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("c"))),
-                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("d"))),
+                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("c".to_string()))),
+                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("d".to_string()))),
             ]),
             Condition::Conjunction(vec![
-                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("e"))),
-                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("f"))),
+                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("e".to_string()))),
+                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("f".to_string()))),
             ]),
         ]),
     );
@@ -221,16 +221,16 @@ fn create_valid_order_ops_parentheses_conjunction_disjunction_condition() {
         "(a ; b) , (c ; d), (e; f)",
         Condition::Conjunction(vec![
             Condition::Parentheses(Box::new(Condition::Disjunction(vec![
-                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a"))),
-                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b"))),
+                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a".to_string()))),
+                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b".to_string()))),
             ]))),
             Condition::Parentheses(Box::new(Condition::Disjunction(vec![
-                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("c"))),
-                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("d"))),
+                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("c".to_string()))),
+                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("d".to_string()))),
             ]))),
             Condition::Parentheses(Box::new(Condition::Disjunction(vec![
-                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("e"))),
-                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("f"))),
+                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("e".to_string()))),
+                Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("f".to_string()))),
             ]))),
         ]),
     );
@@ -242,7 +242,7 @@ fn create_not_with_parentheses_condition() {
         "not (condition)",
         Condition::Not(Box::new(Condition::Parentheses(Box::new(
             Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
-                "condition",
+                "condition".to_string(),
             ))),
         )))),
     );
@@ -254,9 +254,9 @@ fn create_not_with_parentheses_complex_condition() {
         "not a and b",
         Condition::Conjunction(vec![
             Condition::Not(Box::new(Condition::Atomic(AtomicCondition::Primitive(
-                PrimitiveCondition::Var("a"),
+                PrimitiveCondition::Var("a".to_string()),
             )))),
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b"))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("b".to_string()))),
         ]),
     );
 }
@@ -266,9 +266,9 @@ fn create_not_with_parentheses_complex_condition2() {
     assert_parses_to(
         "a and not b",
         Condition::Conjunction(vec![
-            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a"))),
+            Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("a".to_string()))),
             Condition::Not(Box::new(Condition::Atomic(AtomicCondition::Primitive(
-                PrimitiveCondition::Var("b"),
+                PrimitiveCondition::Var("b".to_string()),
             )))),
         ]),
     );

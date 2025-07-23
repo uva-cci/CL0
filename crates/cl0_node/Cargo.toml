@@ -1,0 +1,17 @@
+[package]
+name = "cl0_node"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+tokio = { version = "1", features = ["full"] }
+cl0_parser = { path = "../cl0_parser" }
+async-recursion = "1.1.1"
+
+# tonic = { version = "0.13.1", features = ["transport"] }
+# prost = "0.14.1"
+
+# [build-dependencies]
+# tonic-build = "0.13.1"

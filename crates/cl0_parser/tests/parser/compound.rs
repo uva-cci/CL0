@@ -6,7 +6,7 @@ use cl0_parser::{
 use chumsky::Parser;
 
 /// Assert that `parser` succeeds on `src` and returns exactly `want`.
-fn assert_parses_to(src: &str, want: Compound<'_>) {
+fn assert_parses_to(src: &str, want: Compound) {
     let tokens = lex_tokens(src);
     let parsed = compound_parser().parse(tokens.as_slice());
     assert!(
@@ -37,9 +37,9 @@ fn create_valid_compound() {
         "{ #event => +a. }",
         Compound {
             rules: vec![Rule::Reactive(ReactiveRule::ECA {
-                event: PrimitiveEvent::Trigger("event"),
+                event: PrimitiveEvent::Trigger("event".to_string()),
                 condition: None,
-                action: Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a"))),
+                action: Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
             })],
             alias: None,
         },
@@ -52,11 +52,11 @@ fn create_valid_compound_with_alias() {
         "{ #event => +a. } as alias",
         Compound {
             rules: vec![Rule::Reactive(ReactiveRule::ECA {
-                event: PrimitiveEvent::Trigger("event"),
+                event: PrimitiveEvent::Trigger("event".to_string()),
                 condition: None,
-                action: Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a"))),
+                action: Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
             })],
-            alias: Some("alias"),
+            alias: Some("alias".to_string()),
         },
     );
 }

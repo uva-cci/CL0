@@ -6,7 +6,7 @@ use crate::utils::lex_tokens;
 /// Assert that `parser` succeeds on `src` and returns exactly `want`.
 fn assert_parses_to(
     src: &str,
-    want: PrimitiveCondition<'_>,
+    want: PrimitiveCondition,
 ) {
     let tokens = lex_tokens(src);
     let parsed = primitive_condition_parser()
@@ -39,7 +39,7 @@ fn assert_fails(src: &str) {
 
 #[test]
 fn atomic_var() {
-    assert_parses_to("foo", PrimitiveCondition::Var("foo"));
+    assert_parses_to("foo", PrimitiveCondition::Var("foo".to_string()));
 }
 
 #[test]

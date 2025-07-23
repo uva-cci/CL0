@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package control.v1;
+
+// A command the control-plane sends down to a node.
+message Command {
+  string node_id = 1;   // who it's for (can be empty if broadcast)
+  string action  = 2;   // e.g. "apply_rules", "shutdown"
+  bytes  payload = 3;   // arbitrary serialized data (JSON, bincode, etc.)
+}
+
+// A status/event the node sends up to the control-plane.
+message Status {
+  string node_id = 1;
+  bool   ok      = 2;
+  string info    = 3;
+  uint64 ts_ms   = 4;
+}
+
+// One long-lived bidi stream per node.
+service ControlPlane {
+  rpc NodeSession(stream Status) returns (stream Command);
+}

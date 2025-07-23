@@ -8,7 +8,7 @@ use cl0_parser::{
 use chumsky::Parser;
 
 /// Assert that `parser` succeeds on `src` and returns exactly `want`.
-fn assert_parses_to(src: &str, want: Rule<'_>) {
+fn assert_parses_to(src: &str, want: Rule) {
     let tokens = lex_tokens(src);
     let parsed = rule_parser().parse(tokens.as_slice());
     assert!(
@@ -38,12 +38,12 @@ fn create_valid_eca_rule() {
     assert_parses_to(
         "#e: c => +a.",
         Rule::Reactive(ReactiveRule::ECA {
-            event: PrimitiveEvent::Trigger("e"),
+            event: PrimitiveEvent::Trigger("e".to_string()),
             condition: Some(Condition::Atomic(AtomicCondition::Primitive(
-                PrimitiveCondition::Var("c"),
+                PrimitiveCondition::Var("c".to_string()),
             ))),
             action: Action::Primitive(PrimitiveEvent::Production(
-                PrimitiveCondition::Var("a"),
+                PrimitiveCondition::Var("a".to_string()),
             )),
         }),
     );
@@ -75,10 +75,10 @@ fn create_valid_eca_rule_no_condition() {
     assert_parses_to(
         "#e => +a .",
         Rule::Reactive(ReactiveRule::ECA {
-            event: PrimitiveEvent::Trigger("e"),
+            event: PrimitiveEvent::Trigger("e".to_string()),
             condition: None,
             action: Action::Primitive(PrimitiveEvent::Production(
-                PrimitiveCondition::Var("a"),
+                PrimitiveCondition::Var("a".to_string()),
             )),
         }),
     );
@@ -90,10 +90,10 @@ fn create_valid_ca_rule() {
         ": c => +a.",
         Rule::Reactive(ReactiveRule::CA {
             condition: Condition::Atomic(AtomicCondition::Primitive(
-                PrimitiveCondition::Var("c"),
+                PrimitiveCondition::Var("c".to_string()),
             )),
             action: Action::Primitive(PrimitiveEvent::Production(
-                PrimitiveCondition::Var("a"),
+                PrimitiveCondition::Var("a".to_string()),
             )),
         }),
     );
@@ -115,7 +115,7 @@ fn create_valid_cc_rule1() {
         "-> c.",
         Rule::Declarative(DeclarativeRule::CC {
             premise: None,
-            condition: AtomicCondition::Primitive(PrimitiveCondition::Var("c")),
+            condition: AtomicCondition::Primitive(PrimitiveCondition::Var("c".to_string())),
         }),
     );
 }
@@ -126,9 +126,9 @@ fn create_valid_cc_rule2() {
         "p -> c.",
         Rule::Declarative(DeclarativeRule::CC {
             premise: Some(Condition::Atomic(AtomicCondition::Primitive(
-                PrimitiveCondition::Var("p"),
+                PrimitiveCondition::Var("p".to_string()),
             ))),
-            condition: AtomicCondition::Primitive(PrimitiveCondition::Var("c")),
+            condition: AtomicCondition::Primitive(PrimitiveCondition::Var("c".to_string())),
         }),
     );
 }
@@ -140,7 +140,7 @@ fn create_valid_ct_rule1() {
         Rule::Declarative(DeclarativeRule::CT {
             premise: None,
             condition: Condition::Atomic(AtomicCondition::Primitive(
-                PrimitiveCondition::Var("c"),
+                PrimitiveCondition::Var("c".to_string()),
             )),
         }),
     );
@@ -152,10 +152,10 @@ fn create_valid_ct_rule2() {
         "p -o c.",
         Rule::Declarative(DeclarativeRule::CT {
             premise: Some(Condition::Atomic(AtomicCondition::Primitive(
-                PrimitiveCondition::Var("p"),
+                PrimitiveCondition::Var("p".to_string()),
             ))),
             condition: Condition::Atomic(AtomicCondition::Primitive(
-                PrimitiveCondition::Var("c"),
+                PrimitiveCondition::Var("c".to_string()),
             )),
         }),
     );
@@ -167,8 +167,8 @@ fn create_valid_case_rule() {
         "=> #a; #b.",
         Rule::Case {
             action: Action::List(ActionList::Sequence(vec![
-                Action::Primitive(PrimitiveEvent::Trigger("a")),
-                Action::Primitive(PrimitiveEvent::Trigger("b")),
+                Action::Primitive(PrimitiveEvent::Trigger("a".to_string())),
+                Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
             ])),
         },
     );
@@ -179,7 +179,7 @@ fn create_valid_fact_rule() {
     assert_parses_to(
         "c.",
         Rule::Fact {
-            condition: AtomicCondition::Primitive(PrimitiveCondition::Var("c")),
+            condition: AtomicCondition::Primitive(PrimitiveCondition::Var("c".to_string())),
         },
     );
 }
