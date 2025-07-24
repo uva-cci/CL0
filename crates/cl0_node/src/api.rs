@@ -4,6 +4,7 @@ use tokio::{sync::{mpsc, oneshot}, task};
 
 pub type ApiResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
+#[derive(Debug)]
 pub struct ApiRoute<Req, Res> {
     tx: mpsc::UnboundedSender<(Req, Option<oneshot::Sender<ApiResult<Res>>>)>,
 }

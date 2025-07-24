@@ -5,6 +5,7 @@ pub mod token;
 
 use chumsky::{Parser, span::SimpleSpan};
 
+use crate::ast::Rule;
 use crate::parser::program_parser;
 use crate::{lexer::lexer, token::Token};
 
@@ -13,8 +14,7 @@ use ariadne::{Color, Label, Report, ReportKind, Source, Fmt};
 pub type Span = SimpleSpan;
 pub type Spanned<T> = (T, Span);
 
-
-pub fn parse_and_print(src: &str) {
+pub fn lex_and_parse_span(src: &str) -> Vec<(Rule, SimpleSpan)> {
     // Placeholder when parsing from files
     let file_id: &'static str = "input";
 
@@ -95,8 +95,16 @@ pub fn parse_and_print(src: &str) {
     }
 
     // If parsing was successful, print the AST
-    let output: &Vec<(ast::Rule, SimpleSpan)> =
-        parse_result.output().expect("No output from parser");
+    let output: &Vec<(Rule, SimpleSpan)> = parse_result.output().expect("No output from parser");
+    output.clone()
+}
+
+pub fn lex_and_parse(src: &str) -> Vec<Rule> {
+    lex_and_parse_span(src).into_iter().map(|(rule, _span)| rule).collect()
+}
+
+pub fn parse_and_print(src: &str) {
+    let output = lex_and_parse_span(src);
 
     let rules: Vec<ast::Rule> = output.iter().map(|(rule, _span)| rule.clone()).collect();
     println!("{:#?}", rules);

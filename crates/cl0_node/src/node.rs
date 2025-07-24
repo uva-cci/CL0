@@ -1,5 +1,6 @@
 use async_recursion::async_recursion;
 use cl0_parser::ast::{AtomicCondition, Condition, ReactiveRule, Rule};
+use tracing_subscriber::fmt::init;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::error::Error;
@@ -12,6 +13,7 @@ use crate::event_handler::EventHandler;
 use crate::logger::setup_node_logger;
 use crate::utils::VarValue;
 
+#[derive(Debug)]
 pub struct Node {
     // State shared across the node
     vars: Arc<Mutex<HashMap<AtomicCondition, VarValue>>>,
@@ -21,6 +23,8 @@ pub struct Node {
     // The typed API routes:
     pub api: NodeApi,
 }
+
+#[derive(Debug)]
 pub struct NodeApi {
     /// `(vec![Rule_1, Rule_2, ...]) -> vec![Success_bool_1, Success_bool_2, ...]`
     pub new_rules: ApiRoute<Vec<Rule>, Vec<bool>>,
@@ -111,6 +115,11 @@ impl Node {
                 }
             });
 
+            // Handle the initial rules if provided
+            if let Some(initial_rules) = rules {
+                new_rules.notify(initial_rules);
+            }
+
             // Pass the new Node
             Node {
                 vars,
@@ -124,14 +133,14 @@ impl Node {
     }
 
     #[async_recursion]
-    pub async fn process_condition(&self, condition: &Condition) -> Result<bool, Box<dyn Error>> {
+    pub async fn process_condition(&self, condition: &Condition) -> Result<bool, Box<dyn Error + Send + Sync>> {
         // Process the condition and return a boolean result
         match condition {
             Condition::Atomic(val) => {
                 let mut vars = self.vars.lock().await;
                 match vars.entry(val.clone()) {
                     Entry::Vacant(_) => {
-                        return Err(Box::<dyn Error>::from("Condition variable does not exist"));
+                        return Err(Box::<dyn Error + Send + Sync>::from("Condition variable does not exist"));
                     }
                     Entry::Occupied(entry) => {
                         let value = entry.get();
@@ -144,7 +153,8 @@ impl Node {
                 Ok(!result) // Negate the result
             }
             Condition::Parentheses(cond) => {
-                self.process_condition(cond).await // Process the inner condition
+                let result = self.process_condition(cond).await?; // Process the inner condition
+                Ok(result)
             }
             Condition::Conjunction(conds) => {
                 // Process conjunction (AND) conditions

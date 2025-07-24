@@ -11,11 +11,11 @@ pub type Shared<T> = Arc<Mutex<T>>;
 }
 
 impl VarValue {
-    pub fn to_bool(&self) -> Result<bool, Box<dyn Error>> {
+    pub fn to_bool(&self) -> Result<bool, Box<dyn Error + Send + Sync>> {
         match self {
             VarValue::True => Ok(true),
             VarValue::False => Ok(false),
-            VarValue::Null | VarValue::Unknown => Err(Box::<dyn Error>::from("Unsupported variable value")), // Need to handle these cases
+            VarValue::Null | VarValue::Unknown => Err(Box::<dyn Error + Send + Sync>::from("Unsupported variable value")), // Need to handle these cases
         }
     }
 }

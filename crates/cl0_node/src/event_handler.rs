@@ -1,12 +1,13 @@
 
-use std::{sync::Arc};
-use cl0_parser::ast::{Condition, PrimitiveEvent, ReactiveRule, Rule};
+use std::sync::Arc;
+use cl0_parser::ast::{AtomicCondition, PrimitiveEvent, ReactiveRule, Rule};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 
-use crate::{api::ApiRoute, node::{self, Node}};
+use crate::{api::ApiRoute, node::{Node}, utils::VarValue};
 
+#[derive(Debug)]
 pub struct EventHandler {
     pub id: String,
     rules: Arc<Mutex<Vec<ReactiveRule>>>,
@@ -26,6 +27,7 @@ pub struct EventHandler {
 //         transformed: ReactiveRule,
 //     }
 // }
+#[derive(Debug)]
 pub struct EventHandlerApi {
     /// `(rule) -> success bool`
     pub new_rule: ApiRoute<ReactiveRule, bool>,
@@ -48,40 +50,49 @@ impl EventHandler {
         // API Routes
         // `new_rule` is a route that accepts a ReactiveRule and returns a bool indicating whether each rule was successfully processed.
         let nr_rules = rules.clone();
+        let nr_node = node.clone();
         let new_rule_route = ApiRoute::new(move |rule: ReactiveRule| {
             let rules = nr_rules.clone();
+            let node = nr_node.clone();
             async move {
                 {
                     let mut guard = rules.lock().await;
                     guard.push(rule.clone());
                 }
-                // let ok = Self::process_rule_internal(rule).await;
-                Ok(true)
+                let ok = Self::process_rule_internal(node,rule.clone()).await;
+                Ok(ok)
             }
         });
 
         // `process_action` is a route that accepts an Action and returns a bool indicating success
         let pa_rules = rules.clone();
+        let pa_node = node.clone();
         let process_action_route = ApiRoute::new(move |action: PrimitiveEvent| {
             let rules = pa_rules.clone();
+            let node = pa_node.clone();
             async move {
-                // Here you would implement your action processing logic
-                // For now, we just return true to indicate success
                 let ok = match action {
-                    PrimitiveEvent::Trigger(event) => {
+                    PrimitiveEvent::Trigger(_) => {
+                        // Get status of all rules
+                        let mut valid = true;
                         // Process the trigger event
                         for rule in rules.lock().await.iter() {
-                            Self::process_rule_internal(node, rule.clone()).await;
+                            let node = node.clone();
+                            let result = Self::process_rule_internal(node, rule.clone()).await;
+                            valid &= result;
                         }
+                        valid
                     }
                     PrimitiveEvent::Production(event) => {
-                        // Process the reactive event
-                        // This is where you would implement your logic for processing reactive events
+                        // Process the production event
+                        let atomic_condition = AtomicCondition::Primitive(event);
+                        let _ = node.update_var(atomic_condition, VarValue::True).await;
                         true
                     }
                     PrimitiveEvent::Consumption(event) => {
                         // Process the consumption event
-                        // This is where you would implement your logic for processing consumption events
+                        let atomic_condition = AtomicCondition::Primitive(event);
+                        let _ = node.update_var(atomic_condition, VarValue::False).await;
                         true
                     }
                 };
