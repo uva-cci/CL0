@@ -1,9 +1,11 @@
 use crate::utils::lex_tokens;
+use chumsky::Parser;
 use cl0_parser::{
-    ast::{Action, Compound, PrimitiveCondition, PrimitiveEvent, ReactiveRule, Rule},
+    ast::{
+        Action, AtomicCondition, Compound, PrimitiveCondition, PrimitiveEvent, ReactiveRule, Rule,
+    },
     parser::compound_parser,
 };
-use chumsky::Parser;
 
 /// Assert that `parser` succeeds on `src` and returns exactly `want`.
 fn assert_parses_to(src: &str, want: Compound) {
@@ -39,7 +41,9 @@ fn create_valid_compound() {
             rules: vec![Rule::Reactive(ReactiveRule::ECA {
                 event: PrimitiveEvent::Trigger("event".to_string()),
                 condition: None,
-                action: Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+                action: Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                    PrimitiveCondition::Var("a".to_string()),
+                ))),
             })],
             alias: None,
         },
@@ -54,7 +58,9 @@ fn create_valid_compound_with_alias() {
             rules: vec![Rule::Reactive(ReactiveRule::ECA {
                 event: PrimitiveEvent::Trigger("event".to_string()),
                 condition: None,
-                action: Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+                action: Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                    PrimitiveCondition::Var("a".to_string()),
+                ))),
             })],
             alias: Some("alias".to_string()),
         },

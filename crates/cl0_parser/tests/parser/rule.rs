@@ -1,11 +1,12 @@
 use crate::utils::lex_tokens;
+use chumsky::Parser;
 use cl0_parser::{
     ast::{
-        Action, ActionList, AtomicCondition, Condition, DeclarativeRule, PrimitiveCondition, PrimitiveEvent, ReactiveRule, Rule
+        Action, ActionList, AtomicCondition, Condition, DeclarativeRule, PrimitiveCondition,
+        PrimitiveEvent, ReactiveRule, Rule,
     },
     parser::rule_parser,
 };
-use chumsky::Parser;
 
 /// Assert that `parser` succeeds on `src` and returns exactly `want`.
 fn assert_parses_to(src: &str, want: Rule) {
@@ -42,33 +43,32 @@ fn create_valid_eca_rule() {
             condition: Some(Condition::Atomic(AtomicCondition::Primitive(
                 PrimitiveCondition::Var("c".to_string()),
             ))),
-            action: Action::Primitive(PrimitiveEvent::Production(
+            action: Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
                 PrimitiveCondition::Var("a".to_string()),
-            )),
+            ))),
         }),
     );
 }
 
 #[test]
 fn create_bad_eca_rule1() {
-    assert_fails("e: c => +a.");  // e not a valid event
+    assert_fails("e: c => +a."); // e not a valid event
 }
 
 #[test]
 fn create_bad_eca_rule2() {
-    assert_fails("#e: c => a.");  // a not a valid action
+    assert_fails("#e: c => a."); // a not a valid action
 }
 
 #[test]
 fn create_bad_eca_rule3() {
-    assert_fails("#e: +c => +a.");  // c not a valid condition
+    assert_fails("#e: +c => +a."); // c not a valid condition
 }
 
 #[test]
 fn create_bad_eca_rule4() {
-    assert_fails("#e: +c => +a");  // no period at the end
+    assert_fails("#e: +c => +a"); // no period at the end
 }
-
 
 #[test]
 fn create_valid_eca_rule_no_condition() {
@@ -77,9 +77,9 @@ fn create_valid_eca_rule_no_condition() {
         Rule::Reactive(ReactiveRule::ECA {
             event: PrimitiveEvent::Trigger("e".to_string()),
             condition: None,
-            action: Action::Primitive(PrimitiveEvent::Production(
+            action: Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
                 PrimitiveCondition::Var("a".to_string()),
-            )),
+            ))),
         }),
     );
 }
@@ -89,24 +89,24 @@ fn create_valid_ca_rule() {
     assert_parses_to(
         ": c => +a.",
         Rule::Reactive(ReactiveRule::CA {
-            condition: Condition::Atomic(AtomicCondition::Primitive(
-                PrimitiveCondition::Var("c".to_string()),
-            )),
-            action: Action::Primitive(PrimitiveEvent::Production(
+            condition: Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+                "c".to_string(),
+            ))),
+            action: Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
                 PrimitiveCondition::Var("a".to_string()),
-            )),
+            ))),
         }),
     );
 }
 
 #[test]
 fn create_bad_ca_rule1() {
-    assert_fails(":+c => +a.");  // c not a valid condition
+    assert_fails(":+c => +a."); // c not a valid condition
 }
 
 #[test]
 fn create_bad_ca_rule2() {
-    assert_fails(":c => a.");  // a not a valid action
+    assert_fails(":c => a."); // a not a valid action
 }
 
 #[test]
@@ -139,9 +139,9 @@ fn create_valid_ct_rule1() {
         "-o c.",
         Rule::Declarative(DeclarativeRule::CT {
             premise: None,
-            condition: Condition::Atomic(AtomicCondition::Primitive(
-                PrimitiveCondition::Var("c".to_string()),
-            )),
+            condition: Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+                "c".to_string(),
+            ))),
         }),
     );
 }
@@ -154,9 +154,9 @@ fn create_valid_ct_rule2() {
             premise: Some(Condition::Atomic(AtomicCondition::Primitive(
                 PrimitiveCondition::Var("p".to_string()),
             ))),
-            condition: Condition::Atomic(AtomicCondition::Primitive(
-                PrimitiveCondition::Var("c".to_string()),
-            )),
+            condition: Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+                "c".to_string(),
+            ))),
         }),
     );
 }
@@ -183,7 +183,6 @@ fn create_valid_fact_rule() {
         },
     );
 }
-
 
 #[test]
 fn empty_fail() {

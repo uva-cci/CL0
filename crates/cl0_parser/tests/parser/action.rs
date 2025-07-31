@@ -1,9 +1,9 @@
 use crate::utils::lex_tokens;
+use chumsky::Parser;
 use cl0_parser::{
-    ast::{Action, ActionList, PrimitiveCondition, PrimitiveEvent},
+    ast::{Action, ActionList, AtomicCondition, PrimitiveCondition, PrimitiveEvent},
     parser::action_parser,
 };
-use chumsky::Parser;
 
 /// Assert that `parser` succeeds on `src` and returns exactly `want`.
 fn assert_parses_to(src: &str, want: Action) {
@@ -36,8 +36,8 @@ fn create_valid_primitive_action() {
     println!("Testing valid primitive action creation...");
     assert_parses_to(
         "+primitive",
-        Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var(
-            "primitive".to_string(),
+        Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+            PrimitiveCondition::Var("primitive".to_string()),
         ))),
     );
     println!("Parsed valid primitive action successfully.");
@@ -52,7 +52,9 @@ fn simple_create_valid_list_action_seq() {
     assert_parses_to(
         "+a; #b",
         Action::List(ActionList::Sequence(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("a".to_string()),
+            ))),
             Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
         ])),
     );
@@ -63,7 +65,9 @@ fn simple_create_valid_list_action_seq_trailing() {
     assert_parses_to(
         "+a; #b;",
         Action::List(ActionList::Sequence(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("a".to_string()),
+            ))),
             Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
         ])),
     );
@@ -74,7 +78,9 @@ fn simple_create_valid_list_action_seq_keyword() {
     assert_parses_to(
         "+a seq #b",
         Action::List(ActionList::Sequence(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("a".to_string()),
+            ))),
             Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
         ])),
     );
@@ -85,12 +91,20 @@ fn create_valid_list_action_seq() {
     assert_parses_to(
         "+a; #b;-c;-d;  #e; +f",
         Action::List(ActionList::Sequence(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("a".to_string()),
+            ))),
             Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
-            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("c".to_string()))),
-            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("d".to_string()))),
+            Action::Primitive(PrimitiveEvent::Consumption(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("c".to_string()),
+            ))),
+            Action::Primitive(PrimitiveEvent::Consumption(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("d".to_string()),
+            ))),
             Action::Primitive(PrimitiveEvent::Trigger("e".to_string())),
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("f".to_string()))),
+            Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("f".to_string()),
+            ))),
         ])),
     );
 }
@@ -100,7 +114,9 @@ fn simple_create_valid_list_action_par() {
     assert_parses_to(
         "+a, #b",
         Action::List(ActionList::Parallel(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("a".to_string()),
+            ))),
             Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
         ])),
     );
@@ -111,7 +127,9 @@ fn simple_create_valid_list_action_par_keyword() {
     assert_parses_to(
         "+a par #b",
         Action::List(ActionList::Parallel(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("a".to_string()),
+            ))),
             Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
         ])),
     );
@@ -122,12 +140,20 @@ fn create_valid_list_action_par() {
     assert_parses_to(
         "+a, #b,-c,-d,  #e, +f",
         Action::List(ActionList::Parallel(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("a".to_string()),
+            ))),
             Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
-            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("c".to_string()))),
-            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("d".to_string()))),
+            Action::Primitive(PrimitiveEvent::Consumption(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("c".to_string()),
+            ))),
+            Action::Primitive(PrimitiveEvent::Consumption(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("d".to_string()),
+            ))),
             Action::Primitive(PrimitiveEvent::Trigger("e".to_string())),
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("f".to_string()))),
+            Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("f".to_string()),
+            ))),
         ])),
     );
 }
@@ -137,7 +163,9 @@ fn simple_create_valid_list_action_alt() {
     assert_parses_to(
         "+a alt #b",
         Action::List(ActionList::Alternative(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("a".to_string()),
+            ))),
             Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
         ])),
     );
@@ -148,12 +176,20 @@ fn create_valid_list_action_alt() {
     assert_parses_to(
         "+a alt #b alt -c alt -d alt  #e alt +f",
         Action::List(ActionList::Alternative(vec![
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("a".to_string()))),
+            Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("a".to_string()),
+            ))),
             Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
-            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("c".to_string()))),
-            Action::Primitive(PrimitiveEvent::Consumption(PrimitiveCondition::Var("d".to_string()))),
+            Action::Primitive(PrimitiveEvent::Consumption(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("c".to_string()),
+            ))),
+            Action::Primitive(PrimitiveEvent::Consumption(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("d".to_string()),
+            ))),
             Action::Primitive(PrimitiveEvent::Trigger("e".to_string())),
-            Action::Primitive(PrimitiveEvent::Production(PrimitiveCondition::Var("f".to_string()))),
+            Action::Primitive(PrimitiveEvent::Production(AtomicCondition::Primitive(
+                PrimitiveCondition::Var("f".to_string()),
+            ))),
         ])),
     );
 }

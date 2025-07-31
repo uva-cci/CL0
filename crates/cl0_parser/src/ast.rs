@@ -119,8 +119,8 @@ impl fmt::Display for ActionList {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PrimitiveEvent {
     Trigger(String),                    // #Identifier
-    Production(PrimitiveCondition),  // +Identifier
-    Consumption(PrimitiveCondition), // -Identifier
+    Production(AtomicCondition),        // +Identifier
+    Consumption(AtomicCondition),       // -Identifier
 }
 impl PrimitiveEvent {
     /// Returns the identifier of the primitive event, which is the identifier of what triggers the event.

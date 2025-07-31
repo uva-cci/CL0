@@ -1,188 +1,263 @@
 use async_recursion::async_recursion;
-use cl0_parser::ast::{AtomicCondition, Condition, ReactiveRule, Rule};
-use tracing_subscriber::fmt::init;
+use cl0_parser::ast::{Action, AtomicCondition, Condition, PrimitiveEvent, ReactiveRule, Rule};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::error::Error;
 use std::sync::{Arc, Weak};
-use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
-use tracing::{debug, error, info, warn};
+use tokio::sync::Mutex;
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::api::ApiRoute;
 use crate::event_handler::EventHandler;
-use crate::logger::setup_node_logger;
-use crate::utils::VarValue;
+use crate::utils::{VarError, VarValue};
 
-#[derive(Debug)]
-pub struct Node {
-    // State shared across the node
-    vars: Arc<Mutex<HashMap<AtomicCondition, VarValue>>>,
-    // Event handlers
-    pub event_handlers: Arc<Mutex<HashMap<String, Arc<EventHandler>>>>,
-
-    // The typed API routes:
-    pub api: NodeApi,
-}
-
+/// Public API surface for a Node: adding/getting rules.
 #[derive(Debug)]
 pub struct NodeApi {
-    /// `(vec![Rule_1, Rule_2, ...]) -> vec![Success_bool_1, Success_bool_2, ...]`
     pub new_rules: ApiRoute<Vec<Rule>, Vec<bool>>,
-
-    /// `() -> vec![Rule_1, Rule_2, ...]`
     pub get_rules: ApiRoute<(), Vec<ReactiveRule>>,
 }
 
+/// Core node that maintains variable state, aliases, and event handlers.
+#[derive(Debug)]
+pub struct Node {
+    pub vars: Arc<Mutex<HashMap<AtomicCondition, VarValue>>>,
+    pub aliases: Arc<Mutex<HashMap<String, Vec<Rule>>>>,
+    pub event_handlers: Arc<Mutex<HashMap<String, Arc<EventHandler>>>>,
+    pub api: NodeApi,
+}
+
+/// Structured errors from node operations.
+#[derive(Debug, thiserror::Error)]
+pub enum NodeError {
+    #[error("internal error: {0}")]
+    Internal(String),
+    #[error("action error: {0}")]
+    Action(String),
+}
+
+impl From<Box<dyn std::error::Error + Send + Sync>> for NodeError {
+    fn from(e: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        NodeError::Internal(e.to_string())
+    }
+}
+
 impl Node {
-    /// Creates a new Node instance with the option of passing initial rules.
-    pub fn new(rules: Option<Vec<Rule>>) -> Arc<Self> {
-        Arc::new_cyclic(|weak_node: &Weak<Node>| {
-            // Shared state
+    /// Async constructor that builds the node and applies initial rules if provided.
+    ///
+    /// This avoids races where rules would be "not reliably" applied if fired without awaiting.
+    pub async fn new_with_rules(rules: Option<Vec<Rule>>) -> Arc<Self> {
+        // Use `Arc::new_cyclic` to get a self-referential structure safely.
+        let node = Arc::new_cyclic(|weak_node: &Weak<Node>| {
+            // Shared internal state
             let vars = Arc::new(Mutex::new(HashMap::new()));
-            // Event handlers
-            let event_handlers = Arc::new(Mutex::new(HashMap::<String, Arc<EventHandler>>::new()));
+            let aliases = Arc::new(Mutex::new(HashMap::new()));
+            let event_handlers = Arc::new(Mutex::new(HashMap::new()));
 
-            let weak_node = weak_node.clone(); // now owned Weak<Node>
-            let handlers_for_new = event_handlers.clone(); // Arc<Mutex<…>>
+            // Cloneable handles for closure capture
+            let weak_node = weak_node.clone();
+            let handlers_for_new = event_handlers.clone();
+            let handlers_for_get = event_handlers.clone();
 
-            // API Routes
-            // `new_rules` is a route that accepts a Vec<Rule> and returns a Vec<bool>
-            // indicating whether each rule was successfully processed.
+            // Route to add new rules; handles both reactive rules and immediate cases.
             let new_rules = ApiRoute::new(move |rules: Vec<Rule>| {
-                // Clone per‐call so each async task has its own Arc/Weak
                 let weak_node = weak_node.clone();
                 let handlers = handlers_for_new.clone();
-
                 async move {
-                    let node = weak_node
-                        .upgrade()
-                        .expect("Node got dropped while handling new_rules");
+                    let node = weak_node.upgrade().ok_or_else(|| {
+                        Box::<dyn std::error::Error + Send + Sync>::from("Node dropped")
+                    })?;
 
                     let mut results = Vec::with_capacity(rules.len());
                     let mut guard = handlers.lock().await;
 
                     for rule in rules.into_iter() {
-                        // Only process declarative rules (currently)
                         match &rule {
                             Rule::Reactive(rr) => {
-                                // Get the handler ID from the rule
                                 let handler_id = rr.get_identifier();
-                                // Track the success of processing each rule
                                 let mut result = true;
-                                
-                                // get-or-create the handler
+
                                 match guard.entry(handler_id.clone()) {
                                     Entry::Vacant(entry) => {
-                                        // Handler does not exist, so create it
                                         debug!("Creating new handler: {}", handler_id);
-                                        let new_handler = Arc::new(EventHandler::new(
-                                            node.clone(),
-                                            rr.clone(),
-                                        ));
+                                        let new_handler =
+                                            Arc::new(EventHandler::new(node.clone(), rr.clone()));
                                         entry.insert(new_handler);
                                     }
-                                    Entry::Occupied(mut entry) => {
-                                        // Key exists, do extra processing
-                                        let handler = entry.get_mut();
-                                        debug!("Handler already exists: {}", handler.id);
-                                        result = handler.api.new_rule.call(rr.clone()).await?;
+                                    Entry::Occupied(entry) => {
+                                        // Clone out the handler so we can drop the lock before awaiting.
+                                        let handler = entry.get().clone();
+                                        // Drop guard to avoid holding the node-wide lock across await.
+                                        drop(guard);
+                                        result = handler.add_rule(rr.clone()).await?;
+                                        // Reacquire for the next iteration.
+                                        guard = handlers.lock().await;
                                     }
                                 }
                                 results.push(result);
-                            },
+                            }
+                            Rule::Case { action } => {
+                                let res = Self::process_action(&node, action.clone()).await;
+                                match res {
+                                    Ok(r) => results.push(r),
+                                    Err(e) => {
+                                        error!("Failed to process action: {}", e);
+                                        results.push(false);
+                                    }
+                                }
+                            }
                             _ => {
                                 results.push(false);
-                                continue;
                             }
-                        };
+                        }
                     }
+
                     Ok(results)
                 }
             });
 
-            // `get_rules` is a route that returns all rules as a Vec<ReactiveRule>
-            let handlers_for_get = event_handlers.clone();
+            // Route to gather all reactive rules by querying each handler.
             let get_rules = ApiRoute::new(move |(): ()| {
                 let handlers = handlers_for_get.clone();
                 async move {
-                    let mut rules: Vec<ReactiveRule> = Vec::new();
-                    for handler in handlers.lock().await.values() {
-                        debug!("Handler ID: {}", handler.id);
+                    let mut rules_accum: Vec<ReactiveRule> = Vec::new();
+                    let guard = handlers.lock().await;
+                    for handler in guard.values() {
+                        debug!("Collecting rules from handler: {}", handler.id);
                         let mut handler_rules = handler.api.get_rules.call(()).await?;
-                        rules.append(&mut handler_rules);
+                        rules_accum.append(&mut handler_rules);
                     }
-                    Ok(rules)
+                    Ok(rules_accum)
                 }
             });
 
-            // Handle the initial rules if provided
-            if let Some(initial_rules) = rules {
-                new_rules.notify(initial_rules);
-            }
-
-            // Pass the new Node
             Node {
                 vars,
+                aliases,
                 event_handlers,
                 api: NodeApi {
                     new_rules,
                     get_rules,
                 },
             }
-        })
+        });
+
+        // Apply initial rules in a controlled (awaited) fashion.
+        if let Some(initial_rules) = rules {
+            debug!("Initializing Node with rules: {:?}", initial_rules);
+            if let Err(e) = node.api.new_rules.call(initial_rules).await {
+                error!("Failed to apply initial rules: {:?}", e);
+            }
+        } else {
+            debug!("Initializing Node without initial rules");
+        }
+
+        node
     }
 
+    /// Recursively evaluates complex conditions. Instrumented for tracing.
+    #[instrument(skip(self, condition))]
     #[async_recursion]
-    pub async fn process_condition(&self, condition: &Condition) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        // Process the condition and return a boolean result
+    pub async fn process_condition(
+        &self,
+        condition: &Condition,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         match condition {
             Condition::Atomic(val) => {
                 let mut vars = self.vars.lock().await;
                 match vars.entry(val.clone()) {
-                    Entry::Vacant(_) => {
-                        return Err(Box::<dyn Error + Send + Sync>::from("Condition variable does not exist"));
-                    }
+                    Entry::Vacant(_) => Err(Box::new(NodeError::Action(format!(
+                        "Condition variable does not exist: {:?}",
+                        val
+                    )))),
                     Entry::Occupied(entry) => {
                         let value = entry.get();
-                        value.to_bool() // Convert VarValue to bool
+                        value.to_bool().map_err(|e| Box::new(e) as _)
                     }
                 }
             }
             Condition::Not(cond) => {
                 let result = self.process_condition(cond).await?;
-                Ok(!result) // Negate the result
+                Ok(!result)
             }
-            Condition::Parentheses(cond) => {
-                let result = self.process_condition(cond).await?; // Process the inner condition
-                Ok(result)
-            }
+            Condition::Parentheses(cond) => self.process_condition(cond).await,
             Condition::Conjunction(conds) => {
-                // Process conjunction (AND) conditions
                 for cond in conds {
                     if !self.process_condition(cond).await? {
-                        return Ok(false); // If any condition is false, return false
+                        return Ok(false);
                     }
                 }
-                Ok(true) // All conditions are true
+                Ok(true)
             }
             Condition::Disjunction(conds) => {
-                // Process disjunction (OR) conditions
                 for cond in conds {
                     if self.process_condition(cond).await? {
-                        return Ok(true); // If any condition is true, return true
+                        return Ok(true);
                     }
                 }
-                Ok(false) // All conditions are false
+                Ok(false)
             }
         }
     }
 
-    pub async fn update_var(&self, var: AtomicCondition, value: VarValue) -> Result<(), Box<dyn Error>> {
-        if value == VarValue::Unknown {
-            return Err(Box::<dyn Error>::from("Cannot update variable to Unknown"));
+    /// Entry point for processing an action. Handles triggers, productions, and consumptions.
+    #[instrument(skip(self, action))]
+    pub async fn process_action(
+        &self,
+        action: Action,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        match action {
+            Action::Primitive(prim_event) => match prim_event {
+                PrimitiveEvent::Trigger(desc) => {
+                    let mut handlers_guard = self.event_handlers.lock().await;
+                    match handlers_guard.entry(desc.clone()) {
+                        Entry::Vacant(_) => {
+                            error!("Invalid action cannot be executed: {}", desc);
+                            Err(Box::new(NodeError::Action(format!(
+                                "Invalid action: {}",
+                                desc
+                            ))))
+                        }
+                        Entry::Occupied(eh_entry) => {
+                            let handler = eh_entry.get().clone();
+                            drop(handlers_guard); // minimize lock scope
+
+                            match handler.state().await {
+                                VarValue::True => {
+                                    debug!("Processing action for event handler: {}", desc);
+                                    let action_res = handler.api.process_action.call(()).await;
+                                    action_res.map_err(|e| e)
+                                }
+                                VarValue::False => {
+                                    info!("Inactive variable was silently not executed: {}", desc);
+                                    Ok(true)
+                                }
+                                VarValue::Unknown => Ok(true),
+                            }
+                        }
+                    }
+                }
+                PrimitiveEvent::Production(ac) => self.update_var(ac, VarValue::True).await,
+                PrimitiveEvent::Consumption(ac) => self.update_var(ac, VarValue::False).await,
+            },
+            Action::List(_list) => Ok(true),
         }
+    }
+
+    /// Updates an atomic condition's value atomically.
+    #[instrument(skip(self, var, value))]
+    pub async fn update_var(
+        &self,
+        var: AtomicCondition,
+        value: VarValue,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        if value == VarValue::Unknown {
+            return Err(Box::new(NodeError::Action(
+                "Cannot update variable to Unknown".into(),
+            )));
+        }
+
         let mut vars = self.vars.lock().await;
         vars.insert(var, value);
-        Ok(())
+        Ok(true)
     }
 }

@@ -15,71 +15,7 @@ pub fn action_parser<'tokens, 'src: 'tokens, I>()
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
-    // Primitive Event:
-    let primitive_event_action = primitive_event_parser::<I>()
-        .map_with(|(pe, _), span| (Action::Primitive(pe), span.span()))
-        .labelled("primitive action");
-
-    // Action Sequence:
-    // Parallel: a, b, c    or    a par b par c
-    let parallel = primitive_event_action
-        .clone()
-        .separated_by(just(Token::Comma).or(just(Token::Par)))
-        .at_least(1)
-        .allow_trailing()
-        .collect::<Vec<_>>()
-        .map_with(|mut actions, span| {
-            if actions.len() == 1 {
-                return actions.pop().unwrap();
-            }
-            (
-                Action::List(ActionList::Parallel(
-                    actions.into_iter().map(|(a, _)| a).collect(),
-                )),
-                span.span(),
-            )
-        })
-        .labelled("parallel action");
-
-    // Alternative: a alt b alt c
-    let alternate = parallel
-        .separated_by(just(Token::Alt))
-        .at_least(1)
-        .allow_trailing()
-        .collect::<Vec<_>>()
-        .map_with(|mut actions, span| {
-            if actions.len() == 1 {
-                return actions.pop().unwrap();
-            }
-            (
-                Action::List(ActionList::Alternative(
-                    actions.into_iter().map(|(a, _)| a).collect(),
-                )),
-                span.span(),
-            )
-        })
-        .labelled("alternative action");
-
-    // Sequence: a; b; c    or    a seq b seq c
-    let sequence = alternate
-        .separated_by(just(Token::Semicolon).or(just(Token::Seq)))
-        .at_least(1)
-        .allow_trailing()
-        .collect::<Vec<_>>()
-        .map_with(|mut actions, span| {
-            if actions.len() == 1 {
-                return actions.pop().unwrap();
-            }
-            (
-                Action::List(ActionList::Sequence(
-                    actions.into_iter().map(|(a, _)| a).collect(),
-                )),
-                span.span(),
-            )
-        })
-        .labelled("sequence action");
-
-    sequence.labelled("action")
+    parser().5
 }
 
 /// A Parser for primitive events in the CL0 language.
@@ -88,45 +24,11 @@ where
 /// - Production events: `+event`
 /// - Consumption events: `-event`
 pub fn primitive_event_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<PrimitiveEvent>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
-+ Clone
+-> impl Parser<'tokens, I, Spanned<PrimitiveEvent>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
-    let descriptor = select! { Token::Descriptor(name) => name }.labelled("descriptor");
-
-    // Trigger Event:
-    let trigger = just(Token::Hash)
-        .ignore_then(descriptor.clone())
-        .map_with(|name, span| (PrimitiveEvent::Trigger(name.to_string()), span.span()))
-        .labelled("trigger action");
-
-    // Production Event:
-    let production = just(Token::Plus)
-        .ignore_then(descriptor.clone())
-        .map_with(|name, span| {
-            (
-                PrimitiveEvent::Production(PrimitiveCondition::Var(name.to_string())),
-                span.span(),
-            )
-        })
-        .labelled("production action");
-
-    // Consumption Event:
-    let consumption = just(Token::Minus)
-        .ignore_then(descriptor.clone())
-        .map_with(|name, span| {
-            (
-                PrimitiveEvent::Consumption(PrimitiveCondition::Var(name.to_string())),
-                span.span(),
-            )
-        })
-        .labelled("consumption action");
-
-    trigger
-        .or(production)
-        .or(consumption)
-        .labelled("primitive event")
+    parser().4
 }
 
 /// A Parser for conditions in the CL0 language.
@@ -137,12 +39,11 @@ where
 /// - Conjunction: `condition and condition`, `condition, condition`
 /// - Disjunction: `condition or condition`, `condition; condition`
 pub fn condition_parser<'tokens, 'src: 'tokens, I>()
--> impl Parser<'tokens, I, Spanned<Condition>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
-+ Clone
+-> impl Parser<'tokens, I, Spanned<Condition>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
-    rule_and_atomic_condition_and_compound_and_condition_parser().3
+    parser().3
 }
 
 /// A Parser for atomic conditions in the CL0 language.
@@ -155,7 +56,7 @@ pub fn atomic_condition_parser<'tokens, 'src: 'tokens, I>()
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
-    rule_and_atomic_condition_and_compound_and_condition_parser().1
+    parser().1
 }
 
 /// A Parser for compounds in the CL0 language.
@@ -166,18 +67,15 @@ pub fn compound_parser<'tokens, 'src: 'tokens, I>()
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
-    rule_and_atomic_condition_and_compound_and_condition_parser().2
+    parser().2
 }
 
 /// A Parser for primitive conditions in the CL0 language.
 /// This parser currently handles:
 /// - Primitive conditions: just an identifier (e.g., `foo`, `bar`)
-pub fn primitive_condition_parser<'tokens, 'src: 'tokens, I>() -> impl Parser<
-    'tokens,
-    I,
-    Spanned<PrimitiveCondition>,
-    extra::Err<Rich<'tokens, Token<'src>, Span>>,
-> + Clone
+pub fn primitive_condition_parser<'tokens, 'src: 'tokens, I>()
+-> impl Parser<'tokens, I, Spanned<PrimitiveCondition>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
++ Clone
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
@@ -200,21 +98,22 @@ pub fn rule_parser<'tokens, 'src: 'tokens, I>()
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
 {
-    rule_and_atomic_condition_and_compound_and_condition_parser().0
+    parser().0
 }
 
-fn rule_and_atomic_condition_and_compound_and_condition_parser<'tokens, 'src: 'tokens, I>() -> (
+fn parser<
+    'tokens,
+    'src: 'tokens,
+    I,
+>() -> (
     impl Parser<'tokens, I, Spanned<Rule>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone,
-    impl Parser<
-        'tokens,
-        I,
-        Spanned<AtomicCondition>,
-        extra::Err<Rich<'tokens, Token<'src>, Span>>,
-    > + Clone,
-    impl Parser<'tokens, I, Spanned<Compound>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+    impl Parser<'tokens, I, Spanned<AtomicCondition>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
     + Clone,
-    impl Parser<'tokens, I, Spanned<Condition>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
+    impl Parser<'tokens, I, Spanned<Compound>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone,
+    impl Parser<'tokens, I, Spanned<Condition>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone,
+    impl Parser<'tokens, I, Spanned<PrimitiveEvent>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
     + Clone,
+    impl Parser<'tokens, I, Spanned<Action>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone,
 )
 where
     I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
@@ -223,6 +122,8 @@ where
     let mut atomic_condition_parser = Recursive::declare();
     let mut compound_parser = Recursive::declare();
     let mut condition_parser = Recursive::declare();
+    let mut primitive_event_parser = Recursive::declare();
+    let mut action_parser = Recursive::declare();
 
     compound_parser.define(
         just(Token::LeftCBracket)
@@ -330,14 +231,15 @@ where
 
     // Reactive rules: ECA or CA
     // ECA rule:    #event : condition => action        #event => action
-    let eca_rule = primitive_event_parser::<I>()
+    let eca_rule = primitive_event_parser
+        .clone()
         .then(
             just(Token::Colon)
                 .ignore_then(condition_parser.clone())
                 .or_not(),
         )
         .then_ignore(just(Token::FatArrow))
-        .then(action_parser::<I>())
+        .then(action_parser.clone())
         .then_ignore(just(Token::Dot))
         .map_with(|(((event, _), cond), (action, _)), span| {
             (
@@ -355,7 +257,7 @@ where
     let ca_rule = just(Token::Colon)
         .ignore_then(condition_parser.clone())
         .then_ignore(just(Token::FatArrow))
-        .then(action_parser::<I>())
+        .then(action_parser.clone())
         .then_ignore(just(Token::Dot))
         .map_with(|((condition, _), (action, _)), span| {
             (
@@ -408,7 +310,7 @@ where
 
     // Case-based rule:     => action .
     let case_rule = just(Token::FatArrow)
-        .ignore_then(action_parser::<I>())
+        .ignore_then(action_parser.clone())
         .then_ignore(just(Token::Dot))
         .map_with(|(action, _), span| (Rule::Case { action }, span.span()))
         .labelled("case");
@@ -428,11 +330,114 @@ where
             .labelled("rule"),
     );
 
+    // Primitive Event Parser
+    let pe_parser = recursive(|_| {
+        let descriptor = select! { Token::Descriptor(name) => name }.labelled("descriptor");
+
+        // Trigger Event:
+        let trigger = just(Token::Hash)
+            .ignore_then(descriptor.clone())
+            .map_with(|name, span| (PrimitiveEvent::Trigger(name.to_string()), span.span()))
+            .labelled("trigger action");
+
+        // Production Event:
+        let production = just(Token::Plus)
+            .ignore_then(atomic_condition_parser.clone())
+            .map_with(|(ac, _), span| (PrimitiveEvent::Production(ac), span.span()))
+            .labelled("production action");
+
+        // Consumption Event:
+        let consumption = just(Token::Minus)
+            .ignore_then(atomic_condition_parser.clone())
+            .map_with(|(ac, _), span| (PrimitiveEvent::Consumption(ac), span.span()))
+            .labelled("consumption action");
+
+        trigger
+            .or(production)
+            .or(consumption)
+            .labelled("primitive event")
+    });
+
+    primitive_event_parser.define(pe_parser);
+
+    let a_parser = recursive(|_| {
+        // Primitive Event:
+        let primitive_event_action = primitive_event_parser
+            .clone()
+            .map_with(|(pe, _), span| (Action::Primitive(pe), span.span()))
+            .labelled("primitive action");
+
+        // Action Sequence:
+        // Parallel: a, b, c    or    a par b par c
+        let parallel = primitive_event_action
+            .clone()
+            .separated_by(just(Token::Comma).or(just(Token::Par)))
+            .at_least(1)
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .map_with(|mut actions, span| {
+                if actions.len() == 1 {
+                    return actions.pop().unwrap();
+                }
+                (
+                    Action::List(ActionList::Parallel(
+                        actions.into_iter().map(|(a, _)| a).collect(),
+                    )),
+                    span.span(),
+                )
+            })
+            .labelled("parallel action");
+
+        // Alternative: a alt b alt c
+        let alternate = parallel
+            .separated_by(just(Token::Alt))
+            .at_least(1)
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .map_with(|mut actions, span| {
+                if actions.len() == 1 {
+                    return actions.pop().unwrap();
+                }
+                (
+                    Action::List(ActionList::Alternative(
+                        actions.into_iter().map(|(a, _)| a).collect(),
+                    )),
+                    span.span(),
+                )
+            })
+            .labelled("alternative action");
+
+        // Sequence: a; b; c    or    a seq b seq c
+        let sequence = alternate
+            .separated_by(just(Token::Semicolon).or(just(Token::Seq)))
+            .at_least(1)
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .map_with(|mut actions, span| {
+                if actions.len() == 1 {
+                    return actions.pop().unwrap();
+                }
+                (
+                    Action::List(ActionList::Sequence(
+                        actions.into_iter().map(|(a, _)| a).collect(),
+                    )),
+                    span.span(),
+                )
+            })
+            .labelled("sequence action");
+
+        sequence.labelled("action")
+    });
+
+    action_parser.define(a_parser);
+
     (
         rule_parser,
         atomic_condition_parser,
         compound_parser,
         condition_parser,
+        primitive_event_parser,
+        action_parser,
     )
 }
 

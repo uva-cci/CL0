@@ -1,54 +1,38 @@
-
-use std::sync::Arc;
-use cl0_parser::ast::{AtomicCondition, PrimitiveEvent, ReactiveRule, Rule};
+use cl0_parser::ast::{ReactiveRule, Rule};
+use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn};
 
+use crate::{api::ApiRoute, node::Node, utils::VarValue};
 
-use crate::{api::ApiRoute, node::{Node}, utils::VarValue};
-
-#[derive(Debug)]
-pub struct EventHandler {
-    pub id: String,
-    rules: Arc<Mutex<Vec<ReactiveRule>>>,
-    node: Arc<Node>,
-
-    pub api: EventHandlerApi,
-
-}
-
-// I will most likely need to consolidate to another type that will take in both `ReactiveRule` and `DeclarativeRule`. This type will can then allow
-// the user to see if a `ReactiveRule` is in fact a `DeclarativeRule` or not. Maybe something like this?
-
-// pub enum TransformedReactiveRule {
-//     NativeReactive(ReactiveRule),
-//     Declarative {
-//         original: DeclarativeRule,
-//         transformed: ReactiveRule,
-//     }
-// }
+/// Public-facing API for an event handler. Allows adding new rules, triggering processing,
+/// and querying the active rule set.
 #[derive(Debug)]
 pub struct EventHandlerApi {
-    /// `(rule) -> success bool`
+    /// Add or update a reactive rule in this handler.
     pub new_rule: ApiRoute<ReactiveRule, bool>,
-
-    /// `(action) -> success bool`
-    pub process_action: ApiRoute<PrimitiveEvent, bool>,
-
-    /// `() -> vec![Rule_1, Rule_2, ...]`
+    /// Trigger evaluation of all currently held rules and perform their side effects.
+    pub process_action: ApiRoute<(), bool>,
+    /// Enumerate the current reactive rules this handler is tracking.
     pub get_rules: ApiRoute<(), Vec<ReactiveRule>>,
 }
 
-impl EventHandler {
-    pub fn new(node: Arc<Node>, rule: ReactiveRule) -> Self {
-        // Rules
-        let rules = Arc::new(Mutex::new(vec![rule.clone()]));
+/// A single handler responsible for a group of reactive rules bound by identifier.
+#[derive(Debug)]
+pub struct EventHandler {
+    pub id: String,
+    rules: Arc<Mutex<Vec<(ReactiveRule, VarValue)>>>,
+    pub api: EventHandlerApi,
+}
 
-        // Get the identifier from the rule
+impl EventHandler {
+    /// Constructs a new handler seeded with one initial reactive rule.
+    pub fn new(node: Arc<Node>, rule: ReactiveRule) -> Self {
+        // Each rule carries a status (unknown/true/false) that can be aggregated.
+        let rules = Arc::new(Mutex::new(vec![(rule.clone(), VarValue::Unknown)]));
         let id = rule.get_identifier().clone();
 
-        // API Routes
-        // `new_rule` is a route that accepts a ReactiveRule and returns a bool indicating whether each rule was successfully processed.
+        // Route for inserting/updating a rule.
         let nr_rules = rules.clone();
         let nr_node = node.clone();
         let new_rule_route = ApiRoute::new(move |rule: ReactiveRule| {
@@ -57,90 +41,84 @@ impl EventHandler {
             async move {
                 {
                     let mut guard = rules.lock().await;
-                    guard.push(rule.clone());
+                    guard.push((rule.clone(), VarValue::Unknown));
                 }
-                let ok = Self::process_rule_internal(node,rule.clone()).await;
+                let ok = Self::process_rule_internal(node, rule.clone()).await;
                 Ok(ok)
             }
         });
 
-        // `process_action` is a route that accepts an Action and returns a bool indicating success
+        // Route to evaluate all rules and apply their effects.
         let pa_rules = rules.clone();
         let pa_node = node.clone();
-        let process_action_route = ApiRoute::new(move |action: PrimitiveEvent| {
+        let process_action_route = ApiRoute::new(move |()| {
             let rules = pa_rules.clone();
             let node = pa_node.clone();
             async move {
-                let ok = match action {
-                    PrimitiveEvent::Trigger(_) => {
-                        // Get status of all rules
-                        let mut valid = true;
-                        // Process the trigger event
-                        for rule in rules.lock().await.iter() {
-                            let node = node.clone();
-                            let result = Self::process_rule_internal(node, rule.clone()).await;
-                            valid &= result;
-                        }
-                        valid
-                    }
-                    PrimitiveEvent::Production(event) => {
-                        // Process the production event
-                        let atomic_condition = AtomicCondition::Primitive(event);
-                        let _ = node.update_var(atomic_condition, VarValue::True).await;
-                        true
-                    }
-                    PrimitiveEvent::Consumption(event) => {
-                        // Process the consumption event
-                        let atomic_condition = AtomicCondition::Primitive(event);
-                        let _ = node.update_var(atomic_condition, VarValue::False).await;
-                        true
-                    }
-                };
-                Ok(ok)
+                let mut valid = true;
+                let guard = rules.lock().await;
+                for (rule, _) in guard.iter() {
+                    let result = Self::process_rule_internal(node.clone(), rule.clone()).await;
+                    valid &= result;
+                }
+                Ok(valid)
             }
-        }); 
+        });
 
-        // `get_rules` is a route that returns all rules as a Vec<ReactiveRule>
+        // Route to expose what rules are present.
         let gr_rules = rules.clone();
         let get_rules_route = ApiRoute::new(move |(): ()| {
             let rules = gr_rules.clone();
             async move {
                 let guard = rules.lock().await;
-                Ok(guard.clone())
+                Ok(guard
+                    .clone()
+                    .into_iter()
+                    .map(|(rule, _)| rule)
+                    .collect::<Vec<ReactiveRule>>())
             }
         });
 
-        // 5) Construct the handler
         EventHandler {
             id,
             rules,
-            node,
             api: EventHandlerApi {
-                new_rule:  new_rule_route,
+                new_rule: new_rule_route,
                 process_action: process_action_route,
                 get_rules: get_rules_route,
             },
         }
     }
 
-    /// Your actual async rule‐processing logic
-    async fn process_rule_internal(
-        node: Arc<Node>,
+    /// Convenience wrapper so callers do not have to know to `.call(...)` on the internal route.
+    #[instrument(skip(self, rule))]
+    pub async fn add_rule(
+        &self,
         rule: ReactiveRule,
-    ) -> bool {
-        // Check if there are any conditions to process
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let ok = self.api.new_rule.call(rule).await?;
+        Ok(ok)
+    }
+
+    /// Core rule evaluation logic: checks condition, and if true, emits the corresponding action.
+    #[instrument(skip(node, rule))]
+    async fn process_rule_internal(node: Arc<Node>, rule: ReactiveRule) -> bool {
+        // Decompose the rule into optional condition and action.
         let (condition, action) = match rule {
             ReactiveRule::CA { condition, action } => (Some(condition), action),
-            ReactiveRule::ECA { event: _, condition, action } => (condition, action),
+            ReactiveRule::ECA {
+                event: _,
+                condition,
+                action,
+            } => (condition, action),
         };
 
-        // Check if the condition was provided
+        // Evaluate condition if provided.
         let condition_result = match condition {
             Some(c) => node.process_condition(&c).await,
             None => Ok(true),
         };
 
-        // Process the condition and action
         match condition_result {
             Err(e) => {
                 error!("Failed to process condition: {}", e);
@@ -148,34 +126,54 @@ impl EventHandler {
             }
             Ok(result) => {
                 if result {
-                    // If the condition is true, process the action
-                    // Create a new rule (case) for the action
+                    // Condition satisfied: fire the action as a new case rule.
                     debug!("Condition is true, processing action: {:?}", action);
-                    let case: Rule = Rule::Case { action: action.clone() };
+                    let case: Rule = Rule::Case {
+                        action: action.clone(),
+                    };
                     match node.api.new_rules.call(vec![case]).await {
                         Ok(r) => {
-                            let r_val = r[0];
+                            let r_val = r.get(0).cloned().unwrap_or(false);
                             if r_val {
-                                // Successfully created a new rule (case)
-                                info!("Successfully created new rule (case) for action: {:?}", action);
-                            }
-                            else {
-                                // Failed to create a new rule (case)
+                                info!(
+                                    "Successfully created new rule (case) for action: {:?}",
+                                    action
+                                );
+                            } else {
                                 warn!("Failed to create new rule (case) for action: {:?}", action);
                             }
                             r_val
                         }
                         Err(e) => {
-                            error!("Failed to create new rule (case) for action: {:?}, error: {:?}", action, e);
+                            error!(
+                                "Failed to create new rule (case) for action: {:?}, error: {:?}",
+                                action, e
+                            );
                             false
                         }
                     }
                 } else {
-                    // Condition is false, no action needed
                     debug!("Condition is false, no action processed for: {:?}", action);
                     true
                 }
             }
+        }
+    }
+
+    /// Aggregate the statuses of all contained rules into a single effective state.
+    pub async fn state(&self) -> VarValue {
+        let mut statuses = HashSet::new();
+        for rule in self.rules.lock().await.iter() {
+            statuses.insert(rule.1.clone());
+        }
+        if statuses.len() == 1 {
+            statuses.into_iter().next().unwrap_or(VarValue::Unknown)
+        } else if statuses.contains(&VarValue::True) {
+            VarValue::True
+        } else if statuses.contains(&VarValue::False) {
+            VarValue::False
+        } else {
+            VarValue::Unknown
         }
     }
 }

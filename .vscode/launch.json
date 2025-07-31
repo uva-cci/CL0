@@ -1,16 +1,29 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-        
-        {
-            "name": "Debug lexer_test (Rust)",
-            "type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/target/debug/deps/parser_test-62a03595a2944490",
-            "args": ["--nocapture"],
-            "cwd": "${workspaceFolder}",
-            "env": {},
-            "sourceLanguages": ["rust"]
-        }
-    ]
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Debug cl0_node::node_test",
+			"type": "lldb",
+			"request": "launch",
+
+			// 1) Build the tests first:
+			"preLaunchTask": "cargo: build cl0_node tests",
+
+			// 2) Point at the compiled test binary (wildcard ok):
+			"program": "${workspaceFolder}/target/debug/deps/node_test-3b6b23ede45e0f75",
+
+			// 3) Pass the single test you want to debug:
+			"args": [
+				"node_init_with_rule", // <-- your #[test] function name
+				"--exact",
+				"--nocapture"
+			],
+
+			// 4) Make sure working dir is the crate:
+			"cwd": "${workspaceFolder}/crates/cl0_node",
+
+			"stopOnEntry": false,
+			"console": "integratedTerminal"
+		}
+	]
 }
