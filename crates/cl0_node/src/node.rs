@@ -1,14 +1,18 @@
 use async_recursion::async_recursion;
-use cl0_parser::ast::{Action, AtomicCondition, Condition, PrimitiveEvent, ReactiveRule, Rule};
+use cl0_parser::ast::{
+    Action, ActionList, AtomicCondition, Condition, PrimitiveEvent, ReactiveRule, Rule,
+};
+use rand::seq::IndexedRandom;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::error::Error;
 use std::sync::{Arc, Weak};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::api::ApiRoute;
 use crate::event_handler::EventHandler;
-use crate::utils::{VarError, VarValue};
+use crate::utils::{VarValue, collect_conjunction};
 
 /// Public API surface for a Node: adding/getting rules.
 #[derive(Debug)]
@@ -24,21 +28,6 @@ pub struct Node {
     pub aliases: Arc<Mutex<HashMap<String, Vec<Rule>>>>,
     pub event_handlers: Arc<Mutex<HashMap<String, Arc<EventHandler>>>>,
     pub api: NodeApi,
-}
-
-/// Structured errors from node operations.
-#[derive(Debug, thiserror::Error)]
-pub enum NodeError {
-    #[error("internal error: {0}")]
-    Internal(String),
-    #[error("action error: {0}")]
-    Action(String),
-}
-
-impl From<Box<dyn std::error::Error + Send + Sync>> for NodeError {
-    fn from(e: Box<dyn std::error::Error + Send + Sync>) -> Self {
-        NodeError::Internal(e.to_string())
-    }
 }
 
 impl Node {
@@ -63,9 +52,9 @@ impl Node {
                 let weak_node = weak_node.clone();
                 let handlers = handlers_for_new.clone();
                 async move {
-                    let node = weak_node.upgrade().ok_or_else(|| {
-                        Box::<dyn std::error::Error + Send + Sync>::from("Node dropped")
-                    })?;
+                    let node = weak_node
+                        .upgrade()
+                        .ok_or_else(|| Box::<dyn Error + Send + Sync>::from("Node dropped"))?;
 
                     let mut results = Vec::with_capacity(rules.len());
                     let mut guard = handlers.lock().await;
@@ -96,7 +85,7 @@ impl Node {
                                 results.push(result);
                             }
                             Rule::Case { action } => {
-                                let res = Self::process_action(&node, action.clone()).await;
+                                let res = node.clone().process_action(action.clone()).await;
                                 match res {
                                     Ok(r) => results.push(r),
                                     Err(e) => {
@@ -165,13 +154,18 @@ impl Node {
             Condition::Atomic(val) => {
                 let mut vars = self.vars.lock().await;
                 match vars.entry(val.clone()) {
-                    Entry::Vacant(_) => Err(Box::new(NodeError::Action(format!(
+                    Entry::Vacant(_) => Err(Box::<dyn Error + Send + Sync>::from(format!(
                         "Condition variable does not exist: {:?}",
                         val
-                    )))),
+                    ))),
                     Entry::Occupied(entry) => {
                         let value = entry.get();
-                        value.to_bool().map_err(|e| Box::new(e) as _)
+                        value.to_bool().map_err(|e| {
+                            Box::<dyn Error + Send + Sync>::from(format!(
+                                "Failed to evaluate condition {:?}: {}",
+                                val, e
+                            ))
+                        })
                     }
                 }
             }
@@ -201,8 +195,9 @@ impl Node {
 
     /// Entry point for processing an action. Handles triggers, productions, and consumptions.
     #[instrument(skip(self, action))]
+    #[async_recursion]
     pub async fn process_action(
-        &self,
+        self: Arc<Self>,
         action: Action,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         match action {
@@ -212,10 +207,10 @@ impl Node {
                     match handlers_guard.entry(desc.clone()) {
                         Entry::Vacant(_) => {
                             error!("Invalid action cannot be executed: {}", desc);
-                            Err(Box::new(NodeError::Action(format!(
+                            Err(Box::<dyn Error + Send + Sync>::from(format!(
                                 "Invalid action: {}",
                                 desc
-                            ))))
+                            )))
                         }
                         Entry::Occupied(eh_entry) => {
                             let handler = eh_entry.get().clone();
@@ -239,7 +234,61 @@ impl Node {
                 PrimitiveEvent::Production(ac) => self.update_var(ac, VarValue::True).await,
                 PrimitiveEvent::Consumption(ac) => self.update_var(ac, VarValue::False).await,
             },
-            Action::List(_list) => Ok(true),
+            Action::List(list) => {
+                match list {
+                    ActionList::Sequence(actions) => {
+                        // Sequential-start execution: fire each sub-action one after another without waiting for completion, but still collect their results.
+                        let mut handles = Vec::with_capacity(actions.len());
+                        for sub in actions {
+                            let node_clone = Arc::clone(&self);
+                            let handle = tokio::spawn(async move {
+                                node_clone.process_action(sub.clone()).await
+                            });
+                            handles.push(handle);
+                        }
+                        collect_conjunction(handles).await
+                    }
+                    ActionList::Parallel(actions) => {
+                        // Parallel execution: launch all sub-actions concurrently and await all their results.
+                        let start_notify = Arc::new(Notify::new());
+                        let mut handles = Vec::with_capacity(actions.len());
+
+                        for sub in actions {
+                            let node_clone = Arc::clone(&self);
+                            let gate = start_notify.clone();
+                            let handle = tokio::spawn(async move {
+                                gate.notified().await; // wait until everyone is ready
+                                node_clone.process_action(sub.clone()).await
+                            });
+                            handles.push(handle);
+                        }
+                        // release actions all simultaneously
+                        start_notify.notify_waiters();
+                        collect_conjunction(handles).await
+                    }
+                    ActionList::Alternative(actions) => {
+                        // Alternative execution: launch one random action from the list.
+                        if actions.is_empty() {
+                            return Err(Box::<dyn std::error::Error + Send + Sync>::from(
+                                "Cannot execute empty alternative action",
+                            ));
+                        }
+
+                        // Get a random action.
+                        let selected_action = {
+                            let mut rng = rand::rng(); // current thread-local RNG
+                            actions
+                                .choose(&mut rng)
+                                .expect("non-empty; just checked")
+                                .clone()
+                        };
+
+                        debug!("Executing alternative action: {:?}", selected_action);
+
+                        self.clone().process_action(selected_action).await
+                    }
+                }
+            }
         }
     }
 
@@ -251,9 +300,9 @@ impl Node {
         value: VarValue,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         if value == VarValue::Unknown {
-            return Err(Box::new(NodeError::Action(
-                "Cannot update variable to Unknown".into(),
-            )));
+            return Err(Box::<dyn Error + Send + Sync>::from(
+                "Cannot update variable to Unknown",
+            ));
         }
 
         let mut vars = self.vars.lock().await;
