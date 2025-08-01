@@ -1,14 +1,12 @@
 use async_recursion::async_recursion;
 use cl0_parser::ast::{
-    Action, ActionList, AtomicCondition, Condition, PrimitiveEvent, ReactiveRule, Rule,
+    Action, ActionList, AtomicCondition, Compound, Condition, PrimitiveEvent, ReactiveRule, Rule
 };
 use dashmap::DashMap;
 use rand::seq::IndexedRandom;
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::sync::{Arc, Weak};
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::Notify;
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::api::ApiRoute;
@@ -33,8 +31,6 @@ pub struct Node {
 
 impl Node {
     /// Async constructor that builds the node and applies initial rules if provided.
-    ///
-    /// This avoids races where rules would be "not reliably" applied if fired without awaiting.
     pub async fn new_with_rules(rules: Option<Vec<Rule>>) -> Arc<Self> {
         // Use `Arc::new_cyclic` to get a self-referential structure safely.
         let node = Arc::new_cyclic(|weak_node: &Weak<Node>| {
@@ -95,6 +91,19 @@ impl Node {
                                     }
                                 }
                             }
+                            Rule::Fact { condition } => {
+                                match condition {
+                                    AtomicCondition::Primitive(prim_cond) => {
+                                        // Should I print/log? Should I mark as False?
+                                        results.push(true);
+                                    }
+                                    AtomicCondition::Compound(Compound {rules, alias}) => {
+                                        // Same as above, but more complex.
+                                        // I believe I need to add this to aliases, then make all rules as False (since they can be activated)
+                                        results.push(true);
+                                    }
+                                }
+                            }
                             _ => {
                                 results.push(false);
                             }
@@ -134,9 +143,30 @@ impl Node {
 
         // Apply initial rules in a controlled (awaited) fashion.
         if let Some(initial_rules) = rules {
-            debug!("Initializing Node with rules: {:?}", initial_rules);
-            if let Err(e) = node.api.new_rules.call(initial_rules).await {
+            // Execute all case rules at the end of initialization.
+            debug!("Initializing Node with rules: {:?}", initial_rules.clone());
+            let other_rules: Vec<Rule> = initial_rules.clone().into_iter()
+                .filter(|rule| !matches!(rule, Rule::Case { .. }))
+                .collect();
+            let case_rules: Vec<Rule> = initial_rules.clone()
+                .into_iter()
+                .filter(|rule| matches!(rule, Rule::Case { .. }))
+                .collect();
+
+            // Apply non-case rules first.
+            debug!("Applying initial rules: {:?}", other_rules);
+            let res = node.api.new_rules.call(other_rules).await;
+            if let Err(e) = res {
                 error!("Failed to apply initial rules: {:?}", e);
+            } else {
+                debug!("Initial rules applied successfully");
+                // Apply case rules next.
+                debug!("Applying case rules: {:?}", case_rules);
+                if let Err(e) = node.api.new_rules.call(case_rules).await {
+                    error!("Failed to apply case rules: {:?}", e);
+                } else {
+                    debug!("Case rules applied successfully");
+                }
             }
         } else {
             debug!("Initializing Node without initial rules");
@@ -146,7 +176,7 @@ impl Node {
     }
 
     /// Recursively evaluates complex conditions. Instrumented for tracing.
-    // #[instrument(skip(self, condition))]
+    #[instrument(skip(self, condition))]
     #[async_recursion]
     pub async fn process_condition(
         &self,
@@ -193,7 +223,7 @@ impl Node {
     }
 
     /// Entry point for processing an action. Handles triggers, productions, and consumptions.
-    // #[instrument(skip(self, action))]
+    #[instrument(skip(self, action))]
     #[async_recursion]
     pub async fn process_action(
         self: Arc<Self>,
