@@ -1,4 +1,5 @@
 use cl0_parser::ast::{ReactiveRule, Rule};
+use dashmap::DashSet;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, instrument, warn};
@@ -21,7 +22,7 @@ pub struct EventHandlerApi {
 #[derive(Debug)]
 pub struct EventHandler {
     pub id: String,
-    rules: Arc<Mutex<Vec<(ReactiveRule, VarValue)>>>,
+    rules: Arc<DashSet<(ReactiveRule, VarValue)>>,
     pub api: EventHandlerApi,
 }
 
@@ -29,8 +30,11 @@ impl EventHandler {
     /// Constructs a new handler seeded with one initial reactive rule.
     pub fn new(node: Arc<Node>, rule: ReactiveRule) -> Self {
         // Each rule carries a status (unknown/true/false) that can be aggregated.
-        let rules = Arc::new(Mutex::new(vec![(rule.clone(), VarValue::Unknown)]));
+        let rules = Arc::new(DashSet::new());
         let id = rule.get_identifier().clone();
+
+        // Insert the initial rule with an unknown status.
+        rules.insert((rule.clone(), VarValue::True));
 
         // Route for inserting/updating a rule.
         let nr_rules = rules.clone();
@@ -40,8 +44,7 @@ impl EventHandler {
             let node = nr_node.clone();
             async move {
                 {
-                    let mut guard = rules.lock().await;
-                    guard.push((rule.clone(), VarValue::Unknown));
+                    rules.insert((rule.clone(), VarValue::True));
                 }
                 let ok = Self::process_rule_internal(node, rule.clone()).await;
                 Ok(ok)
@@ -56,8 +59,8 @@ impl EventHandler {
             let node = pa_node.clone();
             async move {
                 let mut valid = true;
-                let guard = rules.lock().await;
-                for (rule, _) in guard.iter() {
+                for rule_ref in rules.iter() {
+                    let (rule, _) = rule_ref.key();
                     let result = Self::process_rule_internal(node.clone(), rule.clone()).await;
                     valid &= result;
                 }
@@ -70,11 +73,9 @@ impl EventHandler {
         let get_rules_route = ApiRoute::new(move |(): ()| {
             let rules = gr_rules.clone();
             async move {
-                let guard = rules.lock().await;
-                Ok(guard
-                    .clone()
-                    .into_iter()
-                    .map(|(rule, _)| rule)
+                Ok(rules
+                    .iter()
+                    .map(|entry| entry.key().0.clone())
                     .collect::<Vec<ReactiveRule>>())
             }
         });
@@ -162,8 +163,8 @@ impl EventHandler {
 
     /// Aggregate the statuses of all contained rules into a single effective state.
     pub async fn state(&self) -> VarValue {
-        let mut statuses = HashSet::new();
-        for rule in self.rules.lock().await.iter() {
+        let mut statuses: HashSet<VarValue> = HashSet::new();
+        for rule in self.rules.iter() {
             statuses.insert(rule.1.clone());
         }
         if statuses.len() == 1 {

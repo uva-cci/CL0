@@ -112,3 +112,36 @@ async fn process_condition_check2() {
     let res = res.unwrap();
     assert!(!res);
 }
+
+#[tokio::test]
+async fn process_action_check1() {
+     // Define new rules to init the node with
+    let rules = lex_and_parse("#e => +loaded. => #e.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("loaded".to_string())));
+
+    let node_rules = node.api.get_rules.call(()).await.unwrap();
+    println!("Node rules: {:?}", node_rules);
+
+    let res = node.process_condition(&condition).await;
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert!(res);
+}
+
+#[tokio::test]
+async fn process_action_check_error1() {
+     // Define new rules to init the node with
+    let rules = lex_and_parse("#e => +loaded.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var("loaded".to_string())));
+
+    let res = node.process_condition(&condition).await;
+    assert!(res.is_err());
+}

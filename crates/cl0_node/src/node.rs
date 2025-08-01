@@ -2,6 +2,7 @@ use async_recursion::async_recursion;
 use cl0_parser::ast::{
     Action, ActionList, AtomicCondition, Condition, PrimitiveEvent, ReactiveRule, Rule,
 };
+use dashmap::DashMap;
 use rand::seq::IndexedRandom;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -24,9 +25,9 @@ pub struct NodeApi {
 /// Core node that maintains variable state, aliases, and event handlers.
 #[derive(Debug)]
 pub struct Node {
-    pub vars: Arc<Mutex<HashMap<AtomicCondition, VarValue>>>,
-    pub aliases: Arc<Mutex<HashMap<String, Vec<Rule>>>>,
-    pub event_handlers: Arc<Mutex<HashMap<String, Arc<EventHandler>>>>,
+    pub vars: Arc<DashMap<AtomicCondition, VarValue>>,
+    pub aliases: Arc<DashMap<String, Vec<Rule>>>,
+    pub event_handlers: Arc<DashMap<String, Arc<EventHandler>>>,
     pub api: NodeApi,
 }
 
@@ -38,9 +39,9 @@ impl Node {
         // Use `Arc::new_cyclic` to get a self-referential structure safely.
         let node = Arc::new_cyclic(|weak_node: &Weak<Node>| {
             // Shared internal state
-            let vars = Arc::new(Mutex::new(HashMap::new()));
-            let aliases = Arc::new(Mutex::new(HashMap::new()));
-            let event_handlers = Arc::new(Mutex::new(HashMap::new()));
+            let vars = Arc::new(DashMap::new());
+            let aliases = Arc::new(DashMap::new());
+            let event_handlers = Arc::new(DashMap::new());
 
             // Cloneable handles for closure capture
             let weak_node = weak_node.clone();
@@ -57,7 +58,6 @@ impl Node {
                         .ok_or_else(|| Box::<dyn Error + Send + Sync>::from("Node dropped"))?;
 
                     let mut results = Vec::with_capacity(rules.len());
-                    let mut guard = handlers.lock().await;
 
                     for rule in rules.into_iter() {
                         match &rule {
@@ -65,21 +65,22 @@ impl Node {
                                 let handler_id = rr.get_identifier();
                                 let mut result = true;
 
-                                match guard.entry(handler_id.clone()) {
-                                    Entry::Vacant(entry) => {
+                                match handlers.get(&handler_id) {
+                                    None => {
                                         debug!("Creating new handler: {}", handler_id);
                                         let new_handler =
                                             Arc::new(EventHandler::new(node.clone(), rr.clone()));
-                                        entry.insert(new_handler);
+                                        handlers.insert(handler_id.clone(), new_handler);
+                                        info!(
+                                            "Created new handler for rule: {}",
+                                            handler_id.clone()
+                                        );
+                                        debug!("Current handlers size: {:?}", handlers.len());
                                     }
-                                    Entry::Occupied(entry) => {
+                                    Some(handler) => {
                                         // Clone out the handler so we can drop the lock before awaiting.
-                                        let handler = entry.get().clone();
-                                        // Drop guard to avoid holding the node-wide lock across await.
-                                        drop(guard);
+                                        let handler = handler.clone();
                                         result = handler.add_rule(rr.clone()).await?;
-                                        // Reacquire for the next iteration.
-                                        guard = handlers.lock().await;
                                     }
                                 }
                                 results.push(result);
@@ -109,9 +110,10 @@ impl Node {
                 let handlers = handlers_for_get.clone();
                 async move {
                     let mut rules_accum: Vec<ReactiveRule> = Vec::new();
-                    let guard = handlers.lock().await;
-                    for handler in guard.values() {
-                        debug!("Collecting rules from handler: {}", handler.id);
+                    for handler_ref in handlers.iter() {
+                        let id = handler_ref.key();
+                        debug!("Collecting rules from handler: {}", id);
+                        let handler = handler_ref.value().clone(); // Arc<EventHandler>
                         let mut handler_rules = handler.api.get_rules.call(()).await?;
                         rules_accum.append(&mut handler_rules);
                     }
@@ -144,31 +146,28 @@ impl Node {
     }
 
     /// Recursively evaluates complex conditions. Instrumented for tracing.
-    #[instrument(skip(self, condition))]
+    // #[instrument(skip(self, condition))]
     #[async_recursion]
     pub async fn process_condition(
         &self,
         condition: &Condition,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         match condition {
-            Condition::Atomic(val) => {
-                let mut vars = self.vars.lock().await;
-                match vars.entry(val.clone()) {
-                    Entry::Vacant(_) => Err(Box::<dyn Error + Send + Sync>::from(format!(
-                        "Condition variable does not exist: {:?}",
-                        val
-                    ))),
-                    Entry::Occupied(entry) => {
-                        let value = entry.get();
-                        value.to_bool().map_err(|e| {
-                            Box::<dyn Error + Send + Sync>::from(format!(
-                                "Failed to evaluate condition {:?}: {}",
-                                val, e
-                            ))
-                        })
-                    }
+            Condition::Atomic(val) => match self.vars.get(val) {
+                None => Err(Box::<dyn Error + Send + Sync>::from(format!(
+                    "Condition variable does not exist: {:?}",
+                    val
+                ))),
+                Some(entry) => {
+                    let value = entry.value();
+                    value.to_bool().map_err(|e| {
+                        Box::<dyn Error + Send + Sync>::from(format!(
+                            "Failed to evaluate condition {:?}: {}",
+                            val, e
+                        ))
+                    })
                 }
-            }
+            },
             Condition::Not(cond) => {
                 let result = self.process_condition(cond).await?;
                 Ok(!result)
@@ -194,7 +193,7 @@ impl Node {
     }
 
     /// Entry point for processing an action. Handles triggers, productions, and consumptions.
-    #[instrument(skip(self, action))]
+    // #[instrument(skip(self, action))]
     #[async_recursion]
     pub async fn process_action(
         self: Arc<Self>,
@@ -202,35 +201,30 @@ impl Node {
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         match action {
             Action::Primitive(prim_event) => match prim_event {
-                PrimitiveEvent::Trigger(desc) => {
-                    let mut handlers_guard = self.event_handlers.lock().await;
-                    match handlers_guard.entry(desc.clone()) {
-                        Entry::Vacant(_) => {
-                            error!("Invalid action cannot be executed: {}", desc);
-                            Err(Box::<dyn Error + Send + Sync>::from(format!(
-                                "Invalid action: {}",
-                                desc
-                            )))
-                        }
-                        Entry::Occupied(eh_entry) => {
-                            let handler = eh_entry.get().clone();
-                            drop(handlers_guard); // minimize lock scope
-
-                            match handler.state().await {
-                                VarValue::True => {
-                                    debug!("Processing action for event handler: {}", desc);
-                                    let action_res = handler.api.process_action.call(()).await;
-                                    action_res.map_err(|e| e)
-                                }
-                                VarValue::False => {
-                                    info!("Inactive variable was silently not executed: {}", desc);
-                                    Ok(true)
-                                }
-                                VarValue::Unknown => Ok(true),
+                PrimitiveEvent::Trigger(desc) => match self.event_handlers.get(&desc) {
+                    None => {
+                        error!("Invalid action cannot be executed: {}", desc);
+                        Err(Box::<dyn Error + Send + Sync>::from(format!(
+                            "Invalid action: {}",
+                            desc
+                        )))
+                    }
+                    Some(eh_entry) => {
+                        let handler = eh_entry.value();
+                        match handler.state().await {
+                            VarValue::True => {
+                                debug!("Processing action for event handler: {}", desc);
+                                let action_res = handler.api.process_action.call(()).await;
+                                action_res.map_err(|e| e)
                             }
+                            VarValue::False => {
+                                info!("Inactive variable was silently not executed: {}", desc);
+                                Ok(true)
+                            }
+                            VarValue::Unknown => Ok(true),
                         }
                     }
-                }
+                },
                 PrimitiveEvent::Production(ac) => self.update_var(ac, VarValue::True).await,
                 PrimitiveEvent::Consumption(ac) => self.update_var(ac, VarValue::False).await,
             },
@@ -305,8 +299,7 @@ impl Node {
             ));
         }
 
-        let mut vars = self.vars.lock().await;
-        vars.insert(var, value);
+        self.vars.insert(var, value);
         Ok(true)
     }
 }
