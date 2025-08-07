@@ -1,8 +1,9 @@
 use cl0_parser::ast::{CaseRule, DeclarativeRule, FactRule, ReactiveRule, Rule};
 use dashmap::{DashMap, DashSet};
 use futures::future::join_all;
-use std::{error::Error, fmt};
-use tokio::task::JoinHandle;
+use std::{error::Error, fmt, sync::Arc};
+use tokio::{sync::RwLock, task::JoinHandle};
+use async_recursion::async_recursion;
 
 /// Represents a non-reactive rule, which can be declarative, case-based, or fact-based.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -115,7 +116,9 @@ pub fn overall_status_from_set(
     if statuses.contains(&VarValue::True) {
         return Ok(VarValue::True);
     }
-    Err(Box::<dyn Error + Send + Sync>::from("No valid status found"))
+    Err(Box::<dyn Error + Send + Sync>::from(
+        "No valid status found",
+    ))
 }
 
 /// Awaits a collection of `JoinHandle<Result<bool, E>>`, returns the conjunction
@@ -137,62 +140,91 @@ pub async fn collect_conjunction(
 }
 
 /// Represents a namespace for aliases, which can contain sub-namespaces and rules.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct AliasNamespace {
-    pub sub_namespaces: DashMap<String, AliasNamespace>,
-    pub rules: Vec<Rule>,
+    sub_namespaces: DashMap<String, Arc<AliasNamespace>>,
+    rules: RwLock<Vec<Rule>>, // <-- Tokio’s async RwLock
 }
+
 impl AliasNamespace {
-    /// Creates a new empty `AliasNamespace`.
     pub fn new() -> Self {
         AliasNamespace {
             sub_namespaces: DashMap::new(),
-            rules: Vec::new(),
+            rules: RwLock::new(Vec::new()),
         }
     }
-    /// Retrieves rules from the current namespace or sub-namespaces based on the provided aliases.
-    pub fn get_rules(&self, aliases: Vec<String>) -> Result<Vec<Rule>, Box<dyn Error + Send + Sync>> {
-        // Check if there are any aliases to process. If empty, we are in the main namespace
-        if aliases.is_empty() {
-            return Ok(self.rules.clone());
-        }
-        
-        // Split the aliases list into the first alias and the rest
-        let first_alias = aliases[0].clone();
-        let rest_aliases = &aliases[1..];
 
-        if let Some(ns) = self.sub_namespaces.get(&first_alias) {
-            ns.get_rules(rest_aliases.to_vec())
+    /// Retrieves rules from this namespace or one of its descendants.
+    #[async_recursion]
+    pub async fn get_rules(
+        &self,
+        mut aliases: Vec<String>,
+    ) -> Result<Vec<Rule>, Box<dyn Error + Send + Sync>> {
+        if aliases.is_empty() {
+            let guard = self.rules.read().await;
+            return Ok(guard.clone());
+        }
+
+        let first = aliases.remove(0);
+        if let Some(child) = self.sub_namespaces.get(&first) {
+            child.get_rules(aliases).await
         } else {
-            Err(Box::<dyn Error + Send + Sync>::from(
-                format!("No matching namespace found for alias: {}", first_alias),
-            ))
+            Err(format!("No matching namespace for alias `{}`", first).into())
         }
     }
-    /// Creates rules in the current namespace or sub-namespaces based on the provided aliases.
-    pub fn create_rules(
-        &mut self,
-        aliases: Vec<String>,
-        rules: Vec<Rule>,
+
+    /// Creates (or replaces) rules in this namespace or a descendant.
+    #[async_recursion]
+    pub async fn create_rules(
+        &self,
+        mut aliases: Vec<String>,
+        new_rules: Vec<Rule>,
+        override_entries: bool,
     ) -> Result<Option<Vec<Rule>>, Box<dyn Error + Send + Sync>> {
-        // Check if there are any aliases to process. If empty, we are in the main namespace
         if aliases.is_empty() {
-            let existing_rules = self.rules.clone();
-            self.rules = rules.clone();
-            if existing_rules.is_empty() {
-                return Ok(None); // No existing rules, just return None
+            let mut guard = self.rules.write().await;
+            let old = guard.clone();
+            if override_entries {
+                // Replace all rules
+                *guard = new_rules;
+            } else {
+                // Union: combine old and new, remove duplicates
+                let mut combined = old.clone();
+                for rule in new_rules {
+                    if !combined.contains(&rule) {
+                        combined.push(rule);
+                    }
+                }
+                *guard = combined;
             }
-            return Ok(Some(existing_rules));
+            return if old.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(old))
+            };
         }
 
-        // Split the aliases list into the first alias and the rest
-        let first_alias = aliases[0].clone();
-        let rest_aliases = &aliases[1..];
-
-        // Get or create the sub-namespace for the first alias
-        let mut sub_ns = self.sub_namespaces.entry(first_alias).or_insert_with(AliasNamespace::new);
-        
-        // Recursively create rules in the sub-namespace
-        sub_ns.value_mut().create_rules(rest_aliases.to_vec(), rules)
+        let first = aliases.remove(0);
+        let child = self
+            .sub_namespaces
+            .entry(first.clone())
+            .or_insert_with(|| Arc::new(AliasNamespace::new()))
+            .clone();
+        child.create_rules(aliases, new_rules, override_entries).await
     }
+}
+
+
+/// Get head and tail of a path.
+pub fn get_parts<T>(path: Vec<T>) -> (T, Vec<T>, Vec<T>)
+where
+    T: Clone,
+{
+    if path.is_empty() {
+        panic!("Path cannot be empty");
+    }
+    let head = path[0].clone();
+    let tail = path[1..].to_vec();
+    let full_path = path.clone();
+    (head, tail, full_path)
 }

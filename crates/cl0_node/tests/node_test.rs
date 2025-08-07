@@ -1,6 +1,6 @@
 use cl0_node::node::Node;
 use cl0_node::utils::{ReactiveRuleWithArgs, RuleWithArgs, VarValue};
-use cl0_parser::ast::{Rule};
+use cl0_parser::ast::{Action, Compound, PrimitiveEvent, ReactiveRule, Rule};
 use cl0_parser::{
     ast::{AtomicCondition, Condition, PrimitiveCondition},
     lex_and_parse,
@@ -141,6 +141,7 @@ async fn process_condition_check1() {
     // Create new node with the rules
     let node = Node::new_with_rules(Some(rules)).await;
 
+    // Get the condition to check
     let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
         "loaded".to_string(),
     )));
@@ -161,6 +162,7 @@ async fn process_condition_check_error1() {
     // Create new node with the rules
     let node = Node::new_with_rules(Some(rules)).await;
 
+    // Get the condition to check
     let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
         "loaded".to_string(),
     )));
@@ -178,6 +180,7 @@ async fn process_condition_check2() {
     // Create new node with the rules
     let node = Node::new_with_rules(Some(rules)).await;
 
+    // Get the condition to check
     let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
         "loaded".to_string(),
     )));
@@ -197,6 +200,7 @@ async fn process_action_check1() {
     // Create new node with the rules
     let node = Node::new_with_rules(Some(rules)).await;
 
+    // Get the condition to check
     let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
         "loaded".to_string(),
     )));
@@ -216,6 +220,7 @@ async fn process_action_check2() {
     // Create new node with the rules
     let node = Node::new_with_rules(Some(rules)).await;
 
+    // Get the condition to check
     let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
         "loaded".to_string(),
     )));
@@ -235,10 +240,315 @@ async fn process_action_check_error1() {
     // Create new node with the rules
     let node = Node::new_with_rules(Some(rules)).await;
 
+    // Get the condition to check
     let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
         "loaded".to_string(),
     )));
 
     let res = node.process_condition(&condition).await;
     assert!(res.is_err());
+}
+
+/// Test that a complex atomic condition can be processed by the node.
+#[tokio::test]
+async fn process_complex_atomic_condition1() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("#e => +{#f => +loaded.}. => #e.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the condition to check
+    let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "loaded".to_string(),
+    )));
+
+    let res = node.process_condition(&condition).await;
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert!(!res);
+}
+
+/// Test that a complex atomic condition can be processed by the node.
+#[tokio::test]
+async fn process_complex_atomic_condition2() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("#e => +{#f => +loaded.}. => #e. => #f.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the condition to check
+    let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "loaded".to_string(),
+    )));
+
+    let res = node.process_condition(&condition).await;
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert!(res);
+}
+
+/// Test that a complex atomic condition with aliasing can be processed by the node.
+#[tokio::test]
+async fn process_complex_atomic_condition_alias1() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("{=> +loaded.} as r. => +r.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the condition to check
+    let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "loaded".to_string(),
+    )));
+
+    let res = node.process_condition(&condition).await;
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert!(res);
+}
+
+/// Test that a complex atomic condition with aliasing can be processed by the node.
+#[tokio::test]
+async fn process_complex_atomic_condition_alias2() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("{=> +loaded.} as r1. {=> -loaded.} as r2. => +r1. => +r2.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the condition to check
+    let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "loaded".to_string(),
+    )));
+
+    let res = node.process_condition(&condition).await;
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert!(!res);
+}
+
+/// Test that a complex atomic condition with aliasing can be processed by the node.
+#[tokio::test]
+async fn process_complex_atomic_condition_alias3_1() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("=> +{#e => +action.} as r. => #e.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the condition to check
+    let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "action".to_string(),
+    )));
+
+    let res = node.process_condition(&condition).await;
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert!(res);
+}
+
+/// Test that a complex atomic condition with aliasing can be processed by the node.
+#[tokio::test]
+async fn process_complex_atomic_condition_alias3_2() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("=> +{#e => +action.} as r. => -r. => #e.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the condition to check
+    let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "action".to_string(),
+    )));
+
+    let res = node.process_condition(&condition).await;
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert!(!res);
+}
+
+/// Test that a complex atomic condition with aliasing can be processed by the node.
+#[tokio::test]
+async fn process_complex_atomic_condition_alias_err1() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("{=> +loaded.} as r.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the condition to check
+    let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "loaded".to_string(),
+    )));
+
+    let res = node.process_condition(&condition).await;
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert!(!res);
+}
+
+/// Test that a complex atomic condition with aliasing can be processed by the node.
+#[tokio::test]
+async fn process_complex_atomic_condition_alias4() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("#e => +{#f => +loaded.} as r. => #e. => -r. => #f.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the condition to check
+    let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "loaded".to_string(),
+    )));
+
+    let res = node.process_condition(&condition).await;
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert!(!res);
+}
+
+/// Test that a complex atomic condition with aliasing can be processed by the node.
+#[tokio::test]
+async fn process_complex_atomic_condition_alias5() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("#e => +{#f => +loaded.} as r. => #e. => +r. => #f.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the condition to check
+    let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "loaded".to_string(),
+    )));
+
+    let res = node.process_condition(&condition).await;
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert!(res);
+}
+
+/// Test a simple primitive condition.
+#[tokio::test]
+async fn test_fact_primitive() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("loaded.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the condition to check
+    let condition = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "loaded".to_string(),
+    )));
+
+    let res = node.process_condition(&condition).await;
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert!(res);
+}
+
+/// Test a simple compound condition.
+#[tokio::test]
+async fn test_fact_compound() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("{#e => #a.} as r.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the condition to check
+    let condition = AtomicCondition::Compound(Compound {
+        rules: vec![Rule::Reactive(ReactiveRule::ECA {
+            event: PrimitiveEvent::Trigger("e".to_string()),
+            condition: None,
+            action: Action::Primitive(PrimitiveEvent::Trigger("a".to_string())),
+        })],
+        alias: Some("r".to_string()),
+    });
+
+    let res = node.get_atomic_condition(condition, None).await;
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert_eq!(res, VarValue::False);
+}
+
+#[tokio::test]
+async fn test_fact_sub_compound() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("=> +{#e => #a1. #e => #a2.} as r.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Create a new rule to remove the second event
+    let more_rules = lex_and_parse("=> -r.{#e => #a2.}.")
+        .into_iter()
+        .filter_map(|r| {
+            if let Rule::Case(cr) = r {
+                Some(RuleWithArgs::Case(cr))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Get the condition to check
+    let condition1 = AtomicCondition::Compound(Compound {
+        rules: vec![Rule::Reactive(ReactiveRule::ECA {
+            event: PrimitiveEvent::Trigger("e".to_string()),
+            condition: None,
+            action: Action::Primitive(PrimitiveEvent::Trigger("a1".to_string())),
+        })],
+        alias: Some("r".to_string()),
+    });
+
+    // Get the condition to check
+    let condition2 = AtomicCondition::Compound(Compound {
+        rules: vec![Rule::Reactive(ReactiveRule::ECA {
+            event: PrimitiveEvent::Trigger("e".to_string()),
+            condition: None,
+            action: Action::Primitive(PrimitiveEvent::Trigger("a2".to_string())),
+        })],
+        alias: Some("r".to_string()),
+    });
+
+    let res = node
+        .clone()
+        .get_atomic_condition(condition1.clone(), None)
+        .await;
+    assert!(res.is_ok());
+
+    let res = res.unwrap();
+    assert_eq!(res, VarValue::True);
+
+    let res = node
+        .clone()
+        .get_atomic_condition(condition2.clone(), None)
+        .await;
+    assert!(res.is_ok());
+
+    let res = res.unwrap();
+    assert_eq!(res, VarValue::True);
+
+    node.api.new_rules.notify(more_rules);
+
+    let res = node
+        .clone()
+        .get_atomic_condition(condition1.clone(), None)
+        .await;
+    assert!(res.is_ok());
+
+    let res = res.unwrap();
+    assert_eq!(res, VarValue::True);
+
+    let res = node
+        .clone()
+        .get_atomic_condition(condition2.clone(), None)
+        .await;
+    assert!(res.is_ok());
+
+    let res = res.unwrap();
+    assert_eq!(res, VarValue::False);
 }

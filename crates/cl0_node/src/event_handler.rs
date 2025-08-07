@@ -1,9 +1,19 @@
 use cl0_parser::ast::{CaseRule, ReactiveRule};
-use dashmap::DashSet;
+use dashmap::DashMap;
 use std::{collections::HashSet, sync::Arc};
 use tracing::{debug, error, info, instrument, warn};
 
-use crate::{api::ApiRoute, node::Node, utils::{ReactiveRuleWithArgs, RuleWithArgs, VarValue}};
+use crate::{
+    api::ApiRoute,
+    node::Node,
+    utils::{ReactiveRuleWithArgs, RuleWithArgs, VarValue},
+};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ReactiveRuleKey {
+    rule: ReactiveRule,
+    alias: Option<Vec<String>>,
+}
 
 /// Public-facing API for an event handler. Allows adding new rules, triggering processing,
 /// and querying the active rule set.
@@ -21,7 +31,7 @@ pub struct EventHandlerApi {
 #[derive(Debug)]
 pub struct EventHandler {
     pub id: String,
-    rules: Arc<DashSet<ReactiveRuleWithArgs>>,
+    rules: Arc<DashMap<ReactiveRuleKey, VarValue>>,
     pub api: EventHandlerApi,
 }
 
@@ -29,24 +39,35 @@ impl EventHandler {
     /// Constructs a new handler seeded with one initial reactive rule.
     pub fn new(node: Arc<Node>, rule_with_args: ReactiveRuleWithArgs) -> Self {
         // Each rule carries a status (unknown/true/false) that can be aggregated.
-        let rules: Arc<DashSet<ReactiveRuleWithArgs>> = Arc::new(DashSet::new());
+        let rules: Arc<DashMap<ReactiveRuleKey, VarValue>> = Arc::new(DashMap::new());
         let id = rule_with_args.rule.get_identifier().clone();
 
         // Insert the initial rule with an unknown status
-        rules.insert(rule_with_args);
+        rules.insert(
+            ReactiveRuleKey {
+                rule: rule_with_args.rule.clone(),
+                alias: rule_with_args.alias.clone(),
+            },
+            rule_with_args.value.clone(),
+        );
 
         // Route for inserting/updating a rule.
         let nr_rules = rules.clone();
-        let nr_node = node.clone();
         let new_rule_route = ApiRoute::new(move |rule_with_args: ReactiveRuleWithArgs| {
             let rules = nr_rules.clone();
-            let node = nr_node.clone();
+            let rule_desc = rule_with_args.rule.clone().to_string();
+            debug!("Adding/updating rule: {} with namespace {:?} with value {:?}", rule_desc, rule_with_args.alias, rule_with_args.value);
             async move {
                 {
-                    rules.insert(rule_with_args.clone());
+                    rules.insert(
+                        ReactiveRuleKey {
+                            rule: rule_with_args.rule.clone(),
+                            alias: rule_with_args.alias.clone(),
+                        },
+                        rule_with_args.value.clone(),
+                    );
                 }
-                let ok = Self::process_rule_internal(node, rule_with_args.rule.clone()).await;
-                Ok(ok)
+                Ok(true)
             }
         });
 
@@ -59,8 +80,24 @@ impl EventHandler {
             async move {
                 let mut valid = true;
                 for rule_ref in rules.iter() {
-                    let rule_with_args= rule_ref.key();
-                    let result = Self::process_rule_internal(node.clone(), rule_with_args.rule.clone()).await;
+                    // Recreate a ReactiveRuleWithArgs for the current rule
+                    let rule_with_args = ReactiveRuleWithArgs {
+                        rule: rule_ref.key().rule.clone(),
+                        alias: rule_ref.key().alias.clone(),
+                        value: rule_ref.value().clone(),
+                    };
+
+                    // Log the rule being processed
+                    let rule_desc = rule_with_args.rule.clone().to_string();
+                    debug!("Attempting to process rule: {}", rule_desc);
+                    if rule_with_args.value.clone() == VarValue::False {
+                        debug!("Skipping disabled rule: {:?}", rule_with_args);
+                        continue; // Skip rules that are false
+                    }
+                    debug!("Processing rule: {:?}", rule_with_args);
+                    let result =
+                        Self::process_rule_internal(node.clone(), rule_with_args.rule.clone())
+                            .await;
                     valid &= result;
                 }
                 Ok(valid)
@@ -74,7 +111,11 @@ impl EventHandler {
             async move {
                 Ok(rules
                     .iter()
-                    .map(|entry| entry.key().clone())
+                    .map(|entry| ReactiveRuleWithArgs {
+                        rule: entry.key().rule.clone(),
+                        alias: entry.key().alias.clone(),
+                        value: entry.value().clone(),
+                    })
                     .collect::<Vec<ReactiveRuleWithArgs>>())
             }
         });
@@ -103,6 +144,10 @@ impl EventHandler {
     /// Core rule evaluation logic: checks condition, and if true, emits the corresponding action.
     #[instrument(skip(node, rule))]
     async fn process_rule_internal(node: Arc<Node>, rule: ReactiveRule) -> bool {
+        // Log the rule being processed
+        let r = rule.clone().to_string();
+        debug!("Processing rule: {}", r);
+
         // Decompose the rule into optional condition and action
         let (condition, action) = match rule {
             ReactiveRule::CA { condition, action } => (Some(condition), action),
@@ -165,7 +210,7 @@ impl EventHandler {
     pub async fn state(&self) -> VarValue {
         let mut statuses: HashSet<VarValue> = HashSet::new();
         for rule in self.rules.iter() {
-            statuses.insert(rule.value.clone());
+            statuses.insert(rule.value().clone());
         }
         if statuses.len() == 1 {
             statuses.into_iter().next().unwrap_or(VarValue::Unknown)

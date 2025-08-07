@@ -7,14 +7,16 @@ use dashmap::{DashMap, DashSet};
 use rand::seq::IndexedRandom;
 use std::error::Error;
 use std::sync::{Arc, Weak};
+use std::vec;
 use tokio::sync::Notify;
 use tracing::{debug, error, info, instrument, warn};
+// use tracing_subscriber::field::debug;
 
 use crate::api::ApiRoute;
 use crate::event_handler::EventHandler;
 use crate::utils::{
     AliasNamespace, FactRuleWithArgs, ReactiveRuleWithArgs, RuleWithArgs, VarValue,
-    collect_conjunction, overall_status_from_set,
+    collect_conjunction, get_parts, overall_status_from_set,
 };
 use crate::visitor::AstVisitor;
 
@@ -29,7 +31,7 @@ pub struct NodeApi {
 #[derive(Debug)]
 pub struct Node {
     pub vars: Arc<DashMap<PrimitiveCondition, VarValue>>,
-    pub aliases: Arc<DashMap<String, AliasNamespace>>,
+    pub aliases: Arc<DashMap<String, Arc<AliasNamespace>>>,
     pub event_handlers: Arc<DashMap<String, Arc<EventHandler>>>,
     pub api: NodeApi,
 }
@@ -41,7 +43,7 @@ impl Node {
         let node = Arc::new_cyclic(|weak_node: &Weak<Node>| {
             // Shared internal state
             let vars: Arc<DashMap<PrimitiveCondition, VarValue>> = Arc::new(DashMap::new());
-            let aliases: Arc<DashMap<String, AliasNamespace>> = Arc::new(DashMap::new());
+            let aliases: Arc<DashMap<String, Arc<AliasNamespace>>> = Arc::new(DashMap::new());
             let event_handlers: Arc<DashMap<String, Arc<EventHandler>>> = Arc::new(DashMap::new());
 
             // Cloneable handles for closure capture
@@ -106,7 +108,8 @@ impl Node {
             }
             for ac in atomic_conditions {
                 // Store each atomic condition with an initial value of False
-                let _ = Self::store_atomic_condition(node.clone(), ac, VarValue::False, None).await;
+                let _ = Self::store_atomic_condition(node.clone(), ac, VarValue::False, None, true)
+                    .await;
             }
 
             // Execute all case rules at the end of initialization
@@ -171,6 +174,8 @@ impl Node {
         self: Arc<Self>,
         condition: &Condition,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let cond = condition.clone().to_string();
+        debug!("Processing condition: {}", cond);
         match condition {
             Condition::Atomic(val) => {
                 let ac = self.get_atomic_condition(val.clone(), None).await;
@@ -225,6 +230,11 @@ impl Node {
         self: Arc<Self>,
         action: Action,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // Log the action being processed
+        let a = action.clone().to_string();
+        debug!("Processing action: {}", a);
+
+        // Match on the action type to determine how to process it
         match action {
             Action::Primitive(prim_event) => match prim_event {
                 PrimitiveEvent::Trigger(desc) => match self.event_handlers.get(&desc) {
@@ -252,10 +262,103 @@ impl Node {
                     }
                 },
                 PrimitiveEvent::Production(ac) => {
-                    self.store_atomic_condition(ac, VarValue::True, None).await
+                    let alias_rules = self.get_alias_rules(ac.clone(), None).await;
+                    match alias_rules {
+                        Err(_) => {
+                            debug!("No alias found for atomic condition: {:?}", ac);
+                            self.store_atomic_condition(ac, VarValue::True, None, true)
+                                .await
+                        }
+                        Ok((rules, ns)) => {
+                            debug!("Found alias rules for atomic condition: {:?}", ac);
+                            // store_atomic_condition should handle everything except for case rules
+                            // Store the atomic condition as True after processing all rules
+                            let mut r = self
+                                .clone()
+                                .store_atomic_condition(
+                                    AtomicCondition::Compound(Compound {
+                                        rules: rules.clone(),
+                                        alias: None,
+                                    }),
+                                    VarValue::True,
+                                    Some(ns),
+                                    true,
+                                )
+                                .await?;
+
+                            // Extract case rules from the alias rules
+                            let case_rules: Vec<RuleWithArgs> = rules
+                                .iter()
+                                .filter_map(|rule| match rule {
+                                    Rule::Case(cr) => Some(RuleWithArgs::Case(cr.clone())),
+                                    _ => None,
+                                })
+                                .collect();
+
+                            // Process each case rule
+                            for case_rule in case_rules {
+                                debug!("Processing case rule: {:?}", case_rule);
+                                match self.clone().process_rule(case_rule).await {
+                                    Ok(res) => r &= res,
+                                    Err(e) => {
+                                        error!("Failed to process case rule: {}", e);
+                                        return Err(e);
+                                    }
+                                }
+                            }
+                            Ok(r)
+                        }
+                    }
                 }
+
                 PrimitiveEvent::Consumption(ac) => {
-                    self.store_atomic_condition(ac, VarValue::False, None).await
+                    let alias_rules = self.get_alias_rules(ac.clone(), None).await;
+                    match alias_rules {
+                        Err(_) => {
+                            debug!("No alias found for atomic condition: {:?}", ac);
+                            self.store_atomic_condition(ac, VarValue::False, None, true)
+                                .await
+                        }
+                        Ok((rules, ns)) => {
+                            debug!("Found alias rules for atomic condition: {:?}", ac);
+                            // store_atomic_condition should handle everything except for case rules
+                            // Store the atomic condition as True after processing all rules
+                            let mut r = self
+                                .clone()
+                                .store_atomic_condition(
+                                    AtomicCondition::Compound(Compound {
+                                        rules: rules.clone(),
+                                        alias: None,
+                                    }),
+                                    VarValue::False,
+                                    Some(ns),
+                                    false,
+                                )
+                                .await?;
+
+                            // Extract case rules from the alias rules
+                            let case_rules: Vec<RuleWithArgs> = rules
+                                .iter()
+                                .filter_map(|rule| match rule {
+                                    Rule::Case(cr) => Some(RuleWithArgs::Case(cr.clone())),
+                                    _ => None,
+                                })
+                                .collect();
+
+                            // Process each case rule
+                            for case_rule in case_rules {
+                                debug!("Processing case rule: {:?}", case_rule);
+                                match self.clone().process_rule(case_rule).await {
+                                    Ok(res) => r &= res,
+                                    Err(e) => {
+                                        error!("Failed to process case rule: {}", e);
+                                        return Err(e);
+                                    }
+                                }
+                            }
+                            Ok(r)
+                        }
+                    }
                 }
             },
             Action::List(list) => {
@@ -316,6 +419,132 @@ impl Node {
         }
     }
 
+    /// Retrieves rules from the alias namespace based on the atomic condition and optional namespace.
+    /// Will return an error if the alias is not found or if the condition is not a primitive variable.
+    #[async_recursion]
+    async fn get_alias_rules(
+        &self,
+        atomic_condition: AtomicCondition,
+        alias_namespace: Option<Vec<String>>,
+    ) -> Result<(Vec<Rule>, Vec<String>), Box<dyn std::error::Error + Send + Sync>> {
+        // Log the atomic condition being processed
+        let ac_str = atomic_condition.clone().to_string();
+        debug!(
+            "Retrieving alias rules for atomic condition {} using namespace {:?}",
+            ac_str, alias_namespace
+        );
+
+        // Meant to be used for retrieving rules from an alias namespace defined by an atomic condition.
+        match atomic_condition {
+            // The tail of the alias namespace
+            AtomicCondition::Primitive(PrimitiveCondition::Var(var)) => {
+                // Check if there is any alias namespace provided
+                match alias_namespace {
+                    // No alias namespace provided, therefore the variable is in the main alias
+                    None => {
+                        let an = match self.aliases.get(&var) {
+                            // If the alias cannot be found, return an error
+                            None => {
+                                return Err(Box::<dyn std::error::Error + Send + Sync>::from(
+                                    "No alias found",
+                                ));
+                            }
+                            // Alias found, retrieve the rules
+                            Some(alias_namespace_ref) => {
+                                // Clone the AliasNamespace to avoid holding a lock
+                                alias_namespace_ref.value().clone()
+                            }
+                        };
+                        // Get the rules from the alias namespace
+                        let rules = an.get_rules(vec![]).await?;
+                        // Return the rules and the namespace as a single variable
+                        let ns = vec![var.clone().to_string()];
+                        Ok((rules, ns))
+                    }
+                    // An alias namespace is provided, therefore the variable is in a sub-alias
+                    Some(alias_namespace_val) => {
+                        // Combine the alias namespace with the variable name
+                        let mut combined_namespace = alias_namespace_val.clone();
+                        combined_namespace.push(var.clone().to_string());
+                        let (head, tail, combined_namespace) = get_parts(combined_namespace);
+
+                        // Get the alias namespace from the aliases map
+                        let an = match self.aliases.get(&head) {
+                            // If the alias cannot be found, return an error
+                            None => {
+                                return Err(Box::<dyn std::error::Error + Send + Sync>::from(
+                                    "No alias found",
+                                ));
+                            }
+                            // Alias found, retrieve the rules
+                            Some(alias_namespace_ref) => {
+                                // Clone the AliasNamespace to avoid holding a lock
+                                alias_namespace_ref.value().clone()
+                            }
+                        };
+                        // Get the rules from the alias namespace
+                        let rules = an.get_rules(tail).await?;
+                        Ok((rules, combined_namespace))
+                    }
+                }
+            }
+            // The atomic condition itself should be ignored for rules retrieval, just return the namespace and rules if an alias is provided from the sub compound.
+            AtomicCondition::Compound(Compound { rules, .. }) => {
+                match alias_namespace {
+                    // No alias namespace provided, return an error telling that there are no alias rules
+                    None => Err(Box::<dyn std::error::Error + Send + Sync>::from(
+                        "No alias found",
+                    )),
+                    // Alias namespace provided, return the overlapping rules and the namespace
+                    Some(ns) => {
+                        let tail_namespace = ns.clone()[ns.len() - 1].clone();
+                        let main_namespace = ns[..ns.len() - 1].to_vec();
+                        let ns = if main_namespace.is_empty() {
+                            None
+                        } else {
+                            Some(main_namespace)
+                        };
+                        // Convert to a primitive atomic condition
+                        let ac =
+                            AtomicCondition::Primitive(PrimitiveCondition::Var(tail_namespace));
+
+                        // Get the rules from the main alias namespace
+                        let (full_rules, full_namespace) = self.get_alias_rules(ac, ns).await?;
+
+                        // Get the matching rules
+                        let matching_rules: Vec<Rule> = rules
+                            .into_iter()
+                            .filter(|rule| full_rules.contains(rule))
+                            .collect();
+
+                        // Return the matching rules and the namespace
+                        Ok((matching_rules, full_namespace))
+                    }
+                }
+            }
+            // Sub namespace defined by a sub compound condition
+            AtomicCondition::SubCompound {
+                namespace,
+                condition,
+            } => {
+                // Append the namespace to the main alias namespace
+                let mut next_ns = match alias_namespace {
+                    Some(ns) => ns,
+                    None => vec![],
+                };
+                next_ns.push(namespace);
+
+                // Recursively get the rules from the sub namespace
+                self.get_alias_rules(*condition, Some(next_ns)).await
+            }
+        }
+    }
+
+    /// Stores an atomic condition with a value.
+    /// Condition - the atomic condition to store,
+    /// value - the value to associate with the condition,
+    /// var_namespace - optional namespace to store the condition in,
+    /// override_entries - whether to override existing entries in the namespace.
     #[instrument(skip(self, condition, value, var_namespace))]
     #[async_recursion]
     pub async fn store_atomic_condition(
@@ -323,7 +552,13 @@ impl Node {
         condition: AtomicCondition,
         value: VarValue,
         var_namespace: Option<Vec<String>>,
+        override_entries: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // Log the condition being processed
+        let cond = condition.clone().to_string();
+        debug!("Storing atomic condition: {} with value: {:?}", cond, value);
+
+        // Match on the type of atomic condition to determine how to handle it
         match condition {
             AtomicCondition::Primitive(prim_cond) => {
                 // Handle primitive conditions
@@ -356,22 +591,23 @@ impl Node {
                     n = n[1..].to_vec().clone(); // Remove the first alias from the namespace
 
                     // Get the first layer namespace or create it if it does not exist
-                    let mut alias_namespace = self
-                        .aliases
-                        .entry(first_alias.clone())
-                        .or_insert_with(AliasNamespace::new);
+                    let child_ns = if let Some(r) = self.aliases.get(&first_alias) {
+                        r.value().clone()
+                    } else {
+                        // Create a new AliasNamespace if it does not exist
+                        let new_ns = Arc::new(AliasNamespace::new());
+                        self.aliases.insert(first_alias.clone(), new_ns.clone());
+                        new_ns
+                    };
 
-                    // Create or update the sub-namespace for the remaining aliases
-                    let prev_rules = alias_namespace.create_rules(n, rules.clone());
+                    // Create or update the rules in the namespace
+                    let prev_rules = child_ns
+                        .create_rules(n, rules.clone(), override_entries)
+                        .await;
 
-                    // Log what happened
                     match prev_rules {
-                        Ok(Some(existing_rules)) => {
-                            warn!("Overriding existing rules: {:?}", existing_rules);
-                        }
-                        Ok(None) => {
-                            info!("No existing rules to override, creating new ones");
-                        }
+                        Ok(Some(existing)) => warn!("Overriding existing rules: {:?}", existing),
+                        Ok(None) => info!("No existing rules, inserted fresh."),
                         Err(e) => {
                             error!("Failed to create or update rules: {}", e);
                             return Err(e);
@@ -382,17 +618,19 @@ impl Node {
                 // Convert the rules into RuleWithArgs format
                 let rules_with_args: Vec<RuleWithArgs> = rules
                     .into_iter()
-                    .map(|r| match r {
-                        Rule::Reactive(rr) => RuleWithArgs::Reactive(ReactiveRuleWithArgs::new(
-                            rr.clone(),
-                            value.clone(),
-                            var_namespace_copy.clone(),
-                        )),
-                        Rule::Fact(fact_rule) => RuleWithArgs::Fact(FactRuleWithArgs {
+                    .filter_map(|r| match r {
+                        Rule::Reactive(rr) => {
+                            Some(RuleWithArgs::Reactive(ReactiveRuleWithArgs::new(
+                                rr.clone(),
+                                value.clone(),
+                                var_namespace_copy.clone(),
+                            )))
+                        }
+                        Rule::Fact(fact_rule) => Some(RuleWithArgs::Fact(FactRuleWithArgs {
                             rule: fact_rule.clone(),
                             value: Some(value.clone()),
-                        }),
-                        Rule::Case(case_rule) => RuleWithArgs::Case(case_rule.clone()),
+                        })),
+                        Rule::Case(_) => None, // Case rules are not processed here
                         _ => panic!("Unsupported rule type in compound condition: {:?}", r),
                     })
                     .collect();
@@ -425,13 +663,17 @@ impl Node {
                 };
 
                 // Handle sub-compound conditions
-                self.store_atomic_condition(*condition, VarValue::False, Some(n))
+                self.store_atomic_condition(*condition, VarValue::False, Some(n), override_entries)
                     .await
             }
         }
     }
 
     /// Retrieves the value of an atomic condition.
+    /// Condition - the atomic condition to store,
+    /// value - the value to associate with the condition,
+    /// var_namespace - optional namespace to store the condition in,
+    /// override_entries - whether to override existing entries in the namespace.
     #[instrument(skip(self, condition, var_namespace))]
     #[async_recursion]
     pub async fn get_atomic_condition(
@@ -439,6 +681,11 @@ impl Node {
         condition: AtomicCondition,
         var_namespace: Option<Vec<String>>,
     ) -> Result<VarValue, Box<dyn std::error::Error + Send + Sync>> {
+        // Log the condition being processed
+        let cond = condition.clone().to_string();
+        debug!("Getting atomic condition: {}", cond);
+
+        // Match on the type of atomic condition to determine how to handle it
         match condition {
             AtomicCondition::Primitive(prim_cond) => {
                 let v_ref = self.vars.get(&prim_cond);
@@ -476,45 +723,46 @@ impl Node {
                     n = n[1..].to_vec(); // Remove the first alias from the namespace
 
                     // Get the first layer namespace or return an error
-                    if let Some(alias_namespace) = self.clone().aliases.get(&first_alias) {
-                        // Get the previous rules
-                        let prev_rules = alias_namespace.get_rules(n.clone())?;
-
-                        // Get the intersection of the rules with the previous rules
-                        let matching_rules = rules
-                            .iter()
-                            .filter(|rule| prev_rules.contains(rule))
-                            .cloned()
-                            .collect::<Vec<Rule>>();
-
-                        // Need to check every rule in the compound to determine the overall value (Only checking for reactive rules currently)
-                        let statuses: DashSet<VarValue> = DashSet::new();
-                        for rule in matching_rules {
-                            match rule {
-                                Rule::Reactive(rr) => {
-                                    // Get the status of the reactive rule
-                                    let s = self
-                                        .clone()
-                                        .get_rule_status(&ReactiveRuleWithArgs::new(
-                                            rr,
-                                            VarValue::True,
-                                            var_namespace_copy.clone(),
-                                        ))
-                                        .await?;
-                                    statuses.insert(s);
-                                }
-                                _ => {}
-                            }
-                        }
-                        // Determine the overall value based on the statuses
-                        let overall = overall_status_from_set(&statuses)?;
-                        Ok(overall)
+                    let alias_namespace = if let Some(r) = self.aliases.get(&first_alias) {
+                        r.value().clone()
                     } else {
                         return Err(Box::<dyn Error + Send + Sync>::from(format!(
                             "No matching namespace found for alias: {}",
                             first_alias
                         )));
+                    };
+                    // Get the previous rules
+                    let prev_rules = alias_namespace.get_rules(n.clone()).await?;
+
+                    // Get the intersection of the rules with the previous rules
+                    let matching_rules = rules
+                        .iter()
+                        .filter(|rule| prev_rules.contains(rule))
+                        .cloned()
+                        .collect::<Vec<Rule>>();
+
+                    // Need to check every rule in the compound to determine the overall value (Only checking for reactive rules currently)
+                    let statuses: DashSet<VarValue> = DashSet::new();
+                    for rule in matching_rules {
+                        match rule {
+                            Rule::Reactive(rr) => {
+                                // Get the status of the reactive rule
+                                let s = self
+                                    .clone()
+                                    .get_rule_status(&ReactiveRuleWithArgs::new(
+                                        rr,
+                                        VarValue::True,
+                                        var_namespace_copy.clone(),
+                                    ))
+                                    .await?;
+                                statuses.insert(s);
+                            }
+                            _ => {}
+                        }
                     }
+                    // Determine the overall value based on the statuses
+                    let overall = overall_status_from_set(&statuses)?;
+                    Ok(overall)
                 }
             }
             AtomicCondition::SubCompound {
@@ -543,6 +791,10 @@ impl Node {
         self: Arc<Self>,
         rule: &ReactiveRuleWithArgs,
     ) -> Result<VarValue, Box<dyn std::error::Error + Send + Sync>> {
+        // Log the rule being processed
+        let rule_desc = rule.rule.to_string();
+        debug!("Getting status for rule: {}", rule_desc);
+
         // Get the rule's identifier
         let handler_id = rule.rule.get_identifier();
         // Check if the handler exists
@@ -563,9 +815,12 @@ impl Node {
 
                 // Go through the rules and find the one that matches the rule's identifier
                 for r in rules {
+                    // Log the rule being checked
+                    let r_desc = r.rule.to_string();
+                    debug!("Checking rule: {}", r_desc);
                     if r.rule == rule.rule && r.alias == rule.alias {
                         // If the rule matches, return its value
-                        return Ok(rule.value.clone());
+                        return Ok(r.value.clone());
                     }
                 }
                 // If no matching rule was found, return an error
@@ -585,6 +840,11 @@ impl Node {
         var: PrimitiveCondition,
         value: VarValue,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // Log the variable being updated
+        let var_desc = var.to_string();
+        debug!("Updating variable: {} to value: {:?}", var_desc, value);
+
+        // Check if the value is Unknown, which is not allowed
         if value == VarValue::Unknown {
             return Err(Box::<dyn Error + Send + Sync>::from(
                 "Cannot update variable to Unknown",
@@ -602,6 +862,11 @@ impl Node {
         self: Arc<Self>,
         rule_with_args: RuleWithArgs,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // Log the rule being processed
+        let rule_desc = Rule::from(rule_with_args.clone()).to_string();
+        debug!("Processing rule: {}", rule_desc);
+
+        // Match on the type of rule to determine how to handle it
         let result: Result<bool, Box<dyn std::error::Error + Send + Sync>> = match &rule_with_args {
             // Reactive rules: check if the handler already exists, create it if not, or add the rule to the existing handler
             RuleWithArgs::Reactive(reactive_rule) => {
@@ -648,13 +913,13 @@ impl Node {
                     AtomicCondition::Primitive(_) => {
                         // By default, primitive conditions are set to True
                         let real_val = value.clone().map_or(VarValue::True, |v| v.clone());
-                        self.store_atomic_condition(rule.condition.clone(), real_val, None)
+                        self.store_atomic_condition(rule.condition.clone(), real_val, None, true)
                             .await
                     }
                     _ => {
                         // By default, compound and sub-compound rules are set to false
                         let real_val = value.clone().map_or(VarValue::False, |v| v.clone());
-                        self.store_atomic_condition(rule.condition.clone(), real_val, None)
+                        self.store_atomic_condition(rule.condition.clone(), real_val, None, true)
                             .await
                     }
                 }
