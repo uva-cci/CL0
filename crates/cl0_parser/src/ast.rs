@@ -58,8 +58,14 @@ impl fmt::Display for PrimitiveCondition {
 /// An atomic condition can be either a compound condition or a primitive condition.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AtomicCondition {
-    Compound(Compound),
     Primitive(PrimitiveCondition),
+    Compound(Compound),
+    SubCompound {
+        /// The namespace of the sub-compound condition, which is used to identify it.
+        namespace: String,
+        /// A sub-compound condition, which is a compound condition that can be nested.
+        condition: Box<Self>,
+    },
 }
 /// Implements the Display trait for AtomicCondition, allowing it to be formatted as a string.
 impl fmt::Display for AtomicCondition {
@@ -69,6 +75,12 @@ impl fmt::Display for AtomicCondition {
                 write!(f, "{}", primitive_condition.to_string())
             }
             AtomicCondition::Compound(compound) => write!(f, "{}", compound.to_string()),
+            AtomicCondition::SubCompound {
+                namespace,
+                condition,
+            } => {
+                write!(f, "{}.{}", namespace.to_string(), condition.to_string())
+            }
         }
     }
 }
@@ -118,9 +130,9 @@ impl fmt::Display for ActionList {
 /// Represents a primitive event, which can be a trigger, production, or consumption event.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PrimitiveEvent {
-    Trigger(String),                    // #Identifier
-    Production(AtomicCondition),        // +Identifier
-    Consumption(AtomicCondition),       // -Identifier
+    Trigger(String),              // #Identifier
+    Production(AtomicCondition),  // +Identifier
+    Consumption(AtomicCondition), // -Identifier
 }
 impl PrimitiveEvent {
     /// Returns the identifier of the primitive event, which is the identifier of what triggers the event.
@@ -250,23 +262,37 @@ impl fmt::Display for DeclarativeRule {
         }
     }
 }
+/// Represents a case rule, which is a rule that only contains an action.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CaseRule {
+    /// The action to be taken when the case is triggered.
+    pub action: Action,
+}
+
+/// Represents a fact rule, which is a rule that only contains a condition.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FactRule {
+    /// The condition that must be satisfied for the fact to hold.
+    pub condition: AtomicCondition,
+}
 
 /// Represents a rule in the system, which can be reactive, declarative, case-based, or fact-based.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Rule {
     Reactive(ReactiveRule),
     Declarative(DeclarativeRule),
-    Case { action: Action },
-    Fact { condition: AtomicCondition },
+    Case(CaseRule),
+    Fact(FactRule),
 }
+
 /// Implements the Display trait for Rule, allowing it to be formatted as a string.
 impl fmt::Display for Rule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Rule::Reactive(reactive_rule) => write!(f, "{}", reactive_rule.to_string()),
             Rule::Declarative(declarative_rule) => write!(f, "{}", declarative_rule.to_string()),
-            Rule::Case { action } => write!(f, "=> {}.", action.to_string()),
-            Rule::Fact { condition } => write!(f, "{}.", condition.to_string()),
+            Rule::Case(CaseRule { action }) => write!(f, "=> {}.", action.to_string()),
+            Rule::Fact(FactRule { condition }) => write!(f, "{}.", condition.to_string()),
         }
     }
 }
@@ -282,7 +308,7 @@ impl Rule {
     }
 }
 
-// Represents a compound rule, which can contain multiple rules and an optional alias to refer to.
+// Represents a compound rule, which can contain multiple rules and an optional alias to refer to
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Compound {
     pub rules: Vec<Rule>,

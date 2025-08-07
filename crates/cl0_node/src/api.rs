@@ -41,14 +41,14 @@ where
             mpsc::unbounded_channel::<(Req, Option<oneshot::Sender<ApiResult<Res>>>)>();
         let handler = Arc::new(handler);
 
-        // Main dispatcher loop: consume incoming requests and spawn their handlers.
+        // Main dispatcher loop: consume incoming requests and spawn their handlers
         task::spawn(async move {
             while let Some((req, maybe_ack)) = rx.recv().await {
                 let handler = handler.clone();
                 task::spawn(async move {
                     let result: ApiResult<Res> = handler(req).await;
 
-                    // If the caller asked for a reply, send it back.
+                    // If the caller asked for a reply, send it back
                     if let Some(ack_tx) = maybe_ack {
                         let _ = ack_tx.send(result);
                     }

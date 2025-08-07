@@ -2,8 +2,7 @@ use crate::utils::lex_tokens;
 use chumsky::Parser;
 use cl0_parser::{
     ast::{
-        Action, ActionList, AtomicCondition, Condition, DeclarativeRule, PrimitiveCondition,
-        PrimitiveEvent, ReactiveRule, Rule,
+        Action, ActionList, AtomicCondition, CaseRule, Condition, DeclarativeRule, FactRule, PrimitiveCondition, PrimitiveEvent, ReactiveRule, Rule
     },
     parser::rule_parser,
 };
@@ -165,12 +164,12 @@ fn create_valid_ct_rule2() {
 fn create_valid_case_rule() {
     assert_parses_to(
         "=> #a; #b.",
-        Rule::Case {
+        Rule::Case(CaseRule {
             action: Action::List(ActionList::Sequence(vec![
                 Action::Primitive(PrimitiveEvent::Trigger("a".to_string())),
                 Action::Primitive(PrimitiveEvent::Trigger("b".to_string())),
             ])),
-        },
+        }),
     );
 }
 
@@ -178,9 +177,9 @@ fn create_valid_case_rule() {
 fn create_valid_fact_rule() {
     assert_parses_to(
         "c.",
-        Rule::Fact {
+        Rule::Fact(FactRule {
             condition: AtomicCondition::Primitive(PrimitiveCondition::Var("c".to_string())),
-        },
+        }),
     );
 }
 

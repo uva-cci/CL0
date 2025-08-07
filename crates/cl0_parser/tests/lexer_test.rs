@@ -30,22 +30,39 @@ fn negate_condition() {
     assert_eq!(tokens, vec![Token::Not, Token::Descriptor("condition")]);
 }
 
-// #[test]
-// fn test_ignores_comments_and_whitespace() {
-//     let input = "    a, b % line comment
-//     alt x y   ";
-//     let tokens = lexer().parse(input).unwrap();
-//     let tokens: Vec<_> = tokens.into_iter().map(|(tok, _)| tok).collect();
+#[test]
+fn dot_vs_endrule1() {
+    let input = "not condition.";
+    let tokens = lexer().parse(input).unwrap();
+    let tokens: Vec<_> = tokens.into_iter().map(|(tok, _)| tok).collect();
 
-//     assert_eq!(
-//         tokens,
-//         vec![
-//             Token::Par,
-//             Token::Identifier("a"),
-//             Token::Identifier("b"),
-//             Token::Alt,
-//             Token::Identifier("x"),
-//             Token::Identifier("y"),
-//         ]
-//     );
-// }
+    assert_eq!(tokens, vec![Token::Not, Token::Descriptor("condition"), Token::EndRule]);
+}
+
+#[test]
+fn dot_vs_endrule2() {
+    let input = "not condition.test";
+    let tokens = lexer().parse(input).unwrap();
+    let tokens: Vec<_> = tokens.into_iter().map(|(tok, _)| tok).collect();
+
+    assert_eq!(tokens, vec![Token::Not, Token::Descriptor("condition"), Token::Dot, Token::Descriptor("test")]);
+}
+
+#[test]
+fn dot_vs_endrule3() {
+    let input = "not condition. ";
+    let tokens = lexer().parse(input).unwrap();
+    let tokens: Vec<_> = tokens.into_iter().map(|(tok, _)| tok).collect();
+
+    assert_eq!(tokens, vec![Token::Not, Token::Descriptor("condition"), Token::EndRule]);
+}
+
+#[test]
+fn dot_vs_endrule4() {
+    let input = "not condition.{";
+    let tokens = lexer().parse(input).unwrap();
+    let tokens: Vec<_> = tokens.into_iter().map(|(tok, _)| tok).collect();
+
+    assert_eq!(tokens, vec![Token::Not, Token::Descriptor("condition"), Token::Dot, Token::LeftCBracket]);
+}
+

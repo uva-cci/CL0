@@ -1,5 +1,5 @@
 use crate::token::Token;
-use chumsky::{prelude::*};
+use chumsky::prelude::*;
 
 pub type Spanned<T> = (T, SimpleSpan);
 
@@ -13,13 +13,22 @@ pub type Spanned<T> = (T, SimpleSpan);
 /// - Line comments starting with `%`, which are ignored
 ///
 pub fn lexer<'src>()
--> impl Parser<'src, &'src str, Vec<Spanned<Token<'src>>>, extra::Err<Rich<'src, char, SimpleSpan>>> {
+-> impl Parser<'src, &'src str, Vec<Spanned<Token<'src>>>, extra::Err<Rich<'src, char, SimpleSpan>>>
+{
     // Multi-character symbols must be matched before single-character and identifiers
     let multi_symbol = choice((
         just("=>").to(Token::FatArrow),
         just("->").to(Token::ThinArrow),
         just("-o").to(Token::DashO),
     ));
+
+    // Distinction between `.` as a dot and `.` as an end of rule
+    let dot_or_endrule = just('.')
+        .then(any().rewind().or_not())
+        .map(|(_, next): (char, Option<char>)| match next {
+            Some(c) if c.is_alphanumeric() || c == '{' => Token::Dot,
+            _ => Token::EndRule,
+        });
 
     // Single-character symbols
     let symbol = choice((
@@ -28,7 +37,6 @@ pub fn lexer<'src>()
         just(";").to(Token::Semicolon),
         just("+").to(Token::Plus),
         just("-").to(Token::Minus),
-        just(".").to(Token::Dot),
         just("(").to(Token::LeftParenthesis),
         just(")").to(Token::RightParenthesis),
         just("{").to(Token::LeftCBracket),
@@ -48,7 +56,7 @@ pub fn lexer<'src>()
         _ => Token::Descriptor(identifier),
     });
 
-    let token = multi_symbol.or(symbol).or(ident);
+    let token = multi_symbol.or(dot_or_endrule).or(symbol).or(ident);
 
     // Comments: skip lines beginning with `%`
     let comment = just("%")

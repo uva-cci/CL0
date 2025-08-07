@@ -46,8 +46,10 @@ pub enum Token<'src> {
     /// Symbol for consumption events
     Minus,
 
-    /// Symbol for a dot, used to end a line
+    /// Symbol for a dot, used to denote namespaces
     Dot,
+    /// Represents the end of a rule, e.g., `+event.`
+    EndRule,
 
     /// Represents `-o` for negating a condition
     DashO,
@@ -85,6 +87,7 @@ impl<'src> fmt::Display for Token<'src> {
             Token::Plus => write!(f, "+"),
             Token::Minus => write!(f, "-"),
             Token::Dot => write!(f, "."),
+            Token::EndRule => write!(f, ". "),
             Token::DashO => write!(f, "-o"),
             Token::FatArrow => write!(f, "=>"),
             Token::ThinArrow => write!(f, "->"),

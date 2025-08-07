@@ -101,11 +101,7 @@ where
     parser().0
 }
 
-fn parser<
-    'tokens,
-    'src: 'tokens,
-    I,
->() -> (
+fn parser<'tokens, 'src: 'tokens, I>() -> (
     impl Parser<'tokens, I, Spanned<Rule>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone,
     impl Parser<'tokens, I, Spanned<AtomicCondition>, extra::Err<Rich<'tokens, Token<'src>, Span>>>
     + Clone,
@@ -212,22 +208,43 @@ where
 
     condition_parser.define(c_parser);
 
-    // Primitive condition parser
-    let primitive_condition = primitive_condition_parser::<I>()
-        .map_with(|(cond, span), _| (AtomicCondition::Primitive(cond), span))
-        .labelled("primitive condition");
+    let ac_parser = recursive(|atomic_condition| {
+        // Primitive condition: just an identifier
+        let primitive_condition = primitive_condition_parser::<I>()
+            .map_with(|(cond, span), _| (AtomicCondition::Primitive(cond), span))
+            .labelled("primitive condition");
 
-    // Compound condition parser
-    let compound_condition = compound_parser
-        .clone()
-        .map_with(|(cond, span), _| (AtomicCondition::Compound(cond), span))
-        .labelled("compound condition");
+        // Compound condition: { rule1. rule2. } or { rule1. rule2. } as alias
+        let compound_condition = compound_parser
+            .clone()
+            .map_with(|(compound, span), _| (AtomicCondition::Compound(compound), span))
+            .labelled("compound condition");
 
-    atomic_condition_parser.define(
-        primitive_condition
+        // Sub-compound condition: namespace.condition
+        let descriptor = select! { Token::Descriptor(name) => name }.labelled("descriptor");
+
+        let sub_compound_condition = descriptor
+            .clone()
+            .then_ignore(just(Token::Dot))
+            .then(atomic_condition.clone())
+            .map_with(|(namespace, (ac, span)), _| {
+                (
+                    AtomicCondition::SubCompound {
+                        namespace: namespace.to_string(),
+                        condition: Box::new(ac),
+                    },
+                    span,
+                )
+            })
+            .labelled("sub-compound condition");
+
+        sub_compound_condition
+            .or(primitive_condition)
             .or(compound_condition)
-            .labelled("atomic condition"),
-    );
+            .labelled("atomic condition")
+    });
+
+    atomic_condition_parser.define(ac_parser);
 
     // Reactive rules: ECA or CA
     // ECA rule:    #event : condition => action        #event => action
@@ -240,7 +257,7 @@ where
         )
         .then_ignore(just(Token::FatArrow))
         .then(action_parser.clone())
-        .then_ignore(just(Token::Dot))
+        .then_ignore(just(Token::EndRule))
         .map_with(|(((event, _), cond), (action, _)), span| {
             (
                 Rule::Reactive(ReactiveRule::ECA {
@@ -258,7 +275,7 @@ where
         .ignore_then(condition_parser.clone())
         .then_ignore(just(Token::FatArrow))
         .then(action_parser.clone())
-        .then_ignore(just(Token::Dot))
+        .then_ignore(just(Token::EndRule))
         .map_with(|((condition, _), (action, _)), span| {
             (
                 Rule::Reactive(ReactiveRule::CA { condition, action }),
@@ -276,7 +293,7 @@ where
         .or_not()
         .then_ignore(just(Token::ThinArrow))
         .then(atomic_condition_parser.clone())
-        .then_ignore(just(Token::Dot))
+        .then_ignore(just(Token::EndRule))
         .map_with(|(premise, (condition, _)), span| {
             (
                 Rule::Declarative(DeclarativeRule::CC {
@@ -294,7 +311,7 @@ where
         .or_not()
         .then_ignore(just(Token::DashO))
         .then(condition_parser.clone())
-        .then_ignore(just(Token::Dot))
+        .then_ignore(just(Token::EndRule))
         .map_with(|(premise, (condition, _)), span| {
             (
                 Rule::Declarative(DeclarativeRule::CT {
@@ -308,18 +325,18 @@ where
 
     let declarative_rule = cc_rule.or(ct_rule).labelled("declarative rule");
 
-    // Case-based rule:     => action .
+    // Case-based rule:     => action 
     let case_rule = just(Token::FatArrow)
         .ignore_then(action_parser.clone())
-        .then_ignore(just(Token::Dot))
-        .map_with(|(action, _), span| (Rule::Case { action }, span.span()))
+        .then_ignore(just(Token::EndRule))
+        .map_with(|(action, _), span| (Rule::Case(CaseRule { action }), span.span()))
         .labelled("case");
 
-    // Fact-based rule:     condition .
+    // Fact-based rule:     condition 
     let fact_rule = atomic_condition_parser
         .clone()
-        .then_ignore(just(Token::Dot))
-        .map_with(|(condition, _), span| (Rule::Fact { condition }, span.span()))
+        .then_ignore(just(Token::EndRule))
+        .map_with(|(condition, _), span| (Rule::Fact(FactRule { condition }), span.span()))
         .labelled("fact");
 
     rule_parser.define(
