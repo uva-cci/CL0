@@ -24,7 +24,7 @@ pub struct EventHandlerApi {
     /// Trigger evaluation of all currently held rules and perform their side effects.
     pub process_action: ApiRoute<(), bool>,
     /// Enumerate the current reactive rules this handler is tracking.
-    pub get_rules: ApiRoute<(), Vec<ReactiveRuleWithArgs>>,
+    pub get_rules: ApiRoute<bool, Vec<ReactiveRuleWithArgs>>,
 }
 
 /// A single handler responsible for a group of reactive rules bound by identifier.
@@ -106,15 +106,21 @@ impl EventHandler {
 
         // Route to expose what rules are present
         let gr_rules = rules.clone();
-        let get_rules_route = ApiRoute::new(move |(): ()| {
+        let get_rules_route = ApiRoute::new(move |all: bool| {
             let rules = gr_rules.clone();
             async move {
                 Ok(rules
                     .iter()
-                    .map(|entry| ReactiveRuleWithArgs {
-                        rule: entry.key().rule.clone(),
-                        alias: entry.key().alias.clone(),
-                        value: entry.value().clone(),
+                    .filter_map(|entry| {
+                        if !all && entry.value().clone() == VarValue::False {
+                            debug!("Skipping disabled rule: {:?}", entry.key());
+                            return None; // Skip rules that are false
+                        }
+                        Some(ReactiveRuleWithArgs {
+                            rule: entry.key().rule.clone(),
+                            alias: entry.key().alias.clone(),
+                            value: entry.value().clone(),
+                        })
                     })
                     .collect::<Vec<ReactiveRuleWithArgs>>())
             }

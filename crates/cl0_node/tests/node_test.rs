@@ -13,7 +13,7 @@ async fn node_init() {
     let node = Node::new_with_rules(None).await;
 
     // Get the current set of rules
-    let node_rules = node.api.get_rules.call(()).await.unwrap();
+    let node_rules = node.api.get_rules.call(false).await.unwrap();
 
     assert_eq!(node_rules.len(), 0);
 }
@@ -28,7 +28,7 @@ async fn node_init_with_rule() {
     let node = Node::new_with_rules(Some(rules)).await;
 
     // Get the current rules
-    let node_rules = node.api.get_rules.call(()).await.unwrap();
+    let node_rules = node.api.get_rules.call(false).await.unwrap();
 
     assert_eq!(node_rules.len(), 1);
 }
@@ -58,7 +58,7 @@ async fn node_init_with_rules_added() {
     node.api.new_rules.notify(more_rules);
 
     // Get the current rules
-    let node_rules = node.api.get_rules.call(()).await.unwrap();
+    let node_rules = node.api.get_rules.call(false).await.unwrap();
 
     assert_eq!(node_rules.len(), 1);
 }
@@ -93,7 +93,7 @@ async fn rule_added() {
     node.api.new_rules.notify(more_rules);
 
     // Get the current rules
-    let node_rules = node.api.get_rules.call(()).await.unwrap();
+    let node_rules = node.api.get_rules.call(false).await.unwrap();
 
     assert_eq!(node_rules.len(), 2);
 }
@@ -127,7 +127,7 @@ async fn rule_added_same_name() {
     node.api.new_rules.notify(more_rules);
 
     // Get the current rules
-    let node_rules = node.api.get_rules.call(()).await.unwrap();
+    let node_rules = node.api.get_rules.call(false).await.unwrap();
 
     assert_eq!(node_rules.len(), 2);
 }
@@ -475,7 +475,7 @@ async fn test_fact_compound() {
 }
 
 #[tokio::test]
-async fn test_fact_sub_compound() {
+async fn test_fact_sub_compound1() {
     // Define new rules to init the node with
     let rules = lex_and_parse("=> +{#e => #a1. #e => #a2.} as r.");
 
@@ -551,4 +551,178 @@ async fn test_fact_sub_compound() {
 
     let res = res.unwrap();
     assert_eq!(res, VarValue::False);
+}
+
+#[tokio::test]
+async fn test_fact_sub_compound2() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("=> +{#e => #a1. #e => #a2.} as r.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Create a new rule to remove the second event
+    let more_rules = lex_and_parse("=> -{#e => #a2.}.")
+        .into_iter()
+        .filter_map(|r| {
+            if let Rule::Case(cr) = r {
+                Some(RuleWithArgs::Case(cr))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Get the condition to check
+    let condition1 = AtomicCondition::Compound(Compound {
+        rules: vec![Rule::Reactive(ReactiveRule::ECA {
+            event: PrimitiveEvent::Trigger("e".to_string()),
+            condition: None,
+            action: Action::Primitive(PrimitiveEvent::Trigger("a1".to_string())),
+        })],
+        alias: Some("r".to_string()),
+    });
+
+    // Get the condition to check
+    let condition2 = AtomicCondition::Compound(Compound {
+        rules: vec![Rule::Reactive(ReactiveRule::ECA {
+            event: PrimitiveEvent::Trigger("e".to_string()),
+            condition: None,
+            action: Action::Primitive(PrimitiveEvent::Trigger("a2".to_string())),
+        })],
+        alias: Some("r".to_string()),
+    });
+
+    let res = node
+        .clone()
+        .get_atomic_condition(condition1.clone(), None)
+        .await;
+    assert!(res.is_ok());
+
+    let res = res.unwrap();
+    assert_eq!(res, VarValue::True);
+
+    let res = node
+        .clone()
+        .get_atomic_condition(condition2.clone(), None)
+        .await;
+    assert!(res.is_ok());
+
+    let res = res.unwrap();
+    assert_eq!(res, VarValue::True);
+
+    node.api.new_rules.notify(more_rules);
+
+    let res = node
+        .clone()
+        .get_atomic_condition(condition1.clone(), None)
+        .await;
+    assert!(res.is_ok());
+
+    let res = res.unwrap();
+    assert_eq!(res, VarValue::True);
+
+    let res = node
+        .clone()
+        .get_atomic_condition(condition2.clone(), None)
+        .await;
+    assert!(res.is_ok());
+
+    let res = res.unwrap();
+    assert_eq!(res, VarValue::True);
+}
+
+
+#[tokio::test]
+async fn test_action_list_sequence_simple() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("=> +{#e1=>+a1.}; +{#e2=>+a2.}; +{#e3=>+a3.}.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the current rules
+    let node_rules = node.api.get_rules.call(false).await.unwrap();
+
+    assert_eq!(node_rules.len(), 3);
+}
+
+#[tokio::test]
+async fn test_action_list_parallel_simple() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("=> +{#e1=>+a1.}, +{#e2=>+a2.}, +{#e3=>+a3.}.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the current rules
+    let node_rules = node.api.get_rules.call(false).await.unwrap();
+
+    assert_eq!(node_rules.len(), 3);
+}
+
+#[tokio::test]
+async fn test_action_list_parallel() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("=> +{#e1: not (a2 or a3) => +a1.}. => +{#e2: not (a1 or a3) => +a2.}. => +{#e3: not (a1 or a2) => +a3.}.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Create new rules to add to the node
+    let more_rules = lex_and_parse("=> #e1, #e2, #e3.")
+        .into_iter()
+        .filter_map(|r| {
+            if let Rule::Case(cr) = r {
+                Some(RuleWithArgs::Case(cr))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Add the new rules
+    let r = node.api.new_rules.call(more_rules).await;
+    println!("New rules added: {:?}", r);
+
+    // Get the condition to check
+    let condition1 = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "a1".to_string(),
+    )));
+    let condition2 = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "a2".to_string(),
+    )));
+    let condition3 = Condition::Atomic(AtomicCondition::Primitive(PrimitiveCondition::Var(
+        "a3".to_string(),
+    )));
+
+    let res = node.clone().process_condition(&condition1).await;
+    assert!(res.is_ok());
+    let res1 = res.unwrap();
+
+
+    let res = node.clone().process_condition(&condition2).await;
+    assert!(res.is_ok());
+    let res2 = res.unwrap();
+
+
+    let res = node.clone().process_condition(&condition3).await;
+    assert!(res.is_ok());
+    let res3 = res.unwrap();
+
+    assert!(res1 || res2 || res3, "At least one action should be true");
+}
+
+#[tokio::test]
+async fn test_action_list_alternate_simple() {
+    // Define new rules to init the node with
+    let rules = lex_and_parse("=> +{#e1=>+a1.} alt +{#e2=>+a2.} alt +{#e3=>+a3.}.");
+
+    // Create new node with the rules
+    let node = Node::new_with_rules(Some(rules)).await;
+
+    // Get the current rules
+    let node_rules = node.api.get_rules.call(false).await.unwrap();
+
+    assert_eq!(node_rules.len(), 1);
 }

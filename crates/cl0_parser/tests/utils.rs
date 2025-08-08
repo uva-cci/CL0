@@ -13,3 +13,4 @@ pub fn lex_tokens(src: &str) -> Vec<Token<'_>> {
     // strip spans
     spanned.into_iter().map(|(t, _)| t).collect()
 }
+

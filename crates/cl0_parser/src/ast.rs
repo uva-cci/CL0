@@ -88,11 +88,11 @@ impl fmt::Display for AtomicCondition {
 /// A sequence of actions can be a sequence, parallel, or alternative execution.    
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ActionList {
-    /// A sequence of actions (e.g., `seq a b` or `a; b`)
+    /// A sequence of actions (e.g., `a seq b` or `a; b`)
     Sequence(Vec<Action>),
-    /// A parallel execution of actions (e.g., `par a b` or `a, b`)
+    /// A parallel execution of actions (e.g., `a par b` or `a, b`)
     Parallel(Vec<Action>),
-    /// An alternative choice of actions (e.g., `alt a b`)
+    /// An alternative choice of actions (e.g., `a alt b`)
     Alternative(Vec<Action>),
 }
 /// Implements the Display trait for ActionList, allowing it to be formatted as a string.

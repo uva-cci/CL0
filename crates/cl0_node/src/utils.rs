@@ -54,6 +54,23 @@ impl From<RuleWithArgs> for Rule {
         }
     }
 }
+impl From<Rule> for RuleWithArgs {
+    fn from(rw: Rule) -> RuleWithArgs {
+        match rw {
+            Rule::Declarative(d) => RuleWithArgs::Declarative(d),
+            Rule::Case(c) => RuleWithArgs::Case(c),
+            Rule::Fact(fr) => RuleWithArgs::Fact(FactRuleWithArgs {
+                rule: fr,
+                value: None, // Default value for fact rules
+            }),
+            Rule::Reactive(rr) => RuleWithArgs::Reactive(ReactiveRuleWithArgs {
+                rule: rr,
+                value: VarValue::True, // Default value for reactive rules
+                alias: None, // Default alias
+            }),
+        }
+    }
+}
 
 /// The possible values a condition variable can take in the system.
 ///

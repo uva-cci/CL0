@@ -119,7 +119,9 @@ dependencies = [
 name = "cl0"
 version = "0.1.0"
 dependencies = [
+ "cl0_node",
  "cl0_parser",
+ "tokio",
 ]
 
 [[package]]

@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 cl0_parser = { path = "./crates/cl0_parser" }
+cl0_node = { path = "./crates/cl0_node" }
+tokio = { version = "1", features = ["full"] }
 
 [workspace]
 members = [
@@ -14,4 +16,8 @@ members = [
     
 [[bin]]
 name = "cl0_parser"
+path = "src/parser_main.rs"
+
+[[bin]]
+name = "cl0_node_repl"
 path = "src/main.rs"

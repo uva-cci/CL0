@@ -8,7 +8,7 @@ use rand::seq::IndexedRandom;
 use std::error::Error;
 use std::sync::{Arc, Weak};
 use std::vec;
-use tokio::sync::Notify;
+use tokio::sync::Barrier;
 use tracing::{debug, error, info, instrument, warn};
 // use tracing_subscriber::field::debug;
 
@@ -24,7 +24,7 @@ use crate::visitor::AstVisitor;
 #[derive(Debug)]
 pub struct NodeApi {
     pub new_rules: ApiRoute<Vec<RuleWithArgs>, Vec<bool>>,
-    pub get_rules: ApiRoute<(), Vec<ReactiveRuleWithArgs>>,
+    pub get_rules: ApiRoute<bool, Vec<ReactiveRuleWithArgs>>,
 }
 
 /// Core node that maintains variable state, aliases, and event handlers.
@@ -69,7 +69,7 @@ impl Node {
             });
 
             // Route to gather all reactive rules by querying each handler
-            let get_rules = ApiRoute::new(move |(): ()| {
+            let get_rules = ApiRoute::new(move |all: bool| {
                 let handlers = handlers_for_get.clone();
                 async move {
                     let mut rules_accum: Vec<ReactiveRuleWithArgs> = Vec::new();
@@ -77,7 +77,7 @@ impl Node {
                         let id = handler_ref.key();
                         debug!("Collecting rules from handler: {}", id);
                         let handler = handler_ref.value().clone(); // Arc<EventHandler>
-                        let mut handler_rules = handler.api.get_rules.call(()).await?;
+                        let mut handler_rules = handler.api.get_rules.call(all).await?;
                         rules_accum.append(&mut handler_rules);
                     }
                     Ok(rules_accum)
@@ -377,20 +377,20 @@ impl Node {
                     }
                     ActionList::Parallel(actions) => {
                         // Parallel execution: launch all sub-actions concurrently and await all their results
-                        let start_notify = Arc::new(Notify::new());
+                        let barrier = Arc::new(Barrier::new(actions.len() + 1));
                         let mut handles = Vec::with_capacity(actions.len());
 
                         for sub in actions {
                             let node_clone = Arc::clone(&self);
-                            let gate = start_notify.clone();
+                            let b = barrier.clone();
                             let handle = tokio::spawn(async move {
-                                gate.notified().await; // wait until everyone is ready
+                                b.wait().await;
                                 node_clone.process_action(sub.clone()).await
                             });
                             handles.push(handle);
                         }
                         // release actions all simultaneously
-                        start_notify.notify_waiters();
+                        barrier.wait().await;
                         collect_conjunction(handles).await
                     }
                     ActionList::Alternative(actions) => {
@@ -691,7 +691,7 @@ impl Node {
                 let v_ref = self.vars.get(&prim_cond);
                 match v_ref {
                     None => Ok(VarValue::Unknown),
-                    Some(entry) => Ok(entry.clone()),
+                    Some(entry) => Ok(entry.value().clone()),
                 }
             }
             AtomicCondition::Compound(Compound { rules, alias }) => {
@@ -811,7 +811,7 @@ impl Node {
                 let handler = handler_entry.value();
 
                 // Get the rules from the handler
-                let rules = handler.api.get_rules.call(()).await?;
+                let rules = handler.api.get_rules.call(true).await?;
 
                 // Go through the rules and find the one that matches the rule's identifier
                 for r in rules {
