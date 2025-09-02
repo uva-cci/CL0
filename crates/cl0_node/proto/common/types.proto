@@ -1,0 +1,11 @@
+syntax = "proto3";
+package common;
+
+message RuleResult {
+    bool success = 1;
+    string output = 2;
+}
+
+message NodeId {
+    string id = 1;
+}

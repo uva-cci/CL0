@@ -1,0 +1,3 @@
+version: v1
+directories:
+  - crates/cl0_node/proto/web

@@ -1,5 +1,5 @@
 use cl0_node::node::Node;
-use cl0_node::utils::{ReactiveRuleWithArgs, RuleWithArgs, VarValue};
+use cl0_node::types::{ReactiveRuleWithArgs, RuleWithArgs, ActivationStatus};
 use cl0_parser::ast::{Action, Compound, PrimitiveEvent, ReactiveRule, Rule};
 use cl0_parser::{
     ast::{AtomicCondition, Condition, PrimitiveCondition},
@@ -45,7 +45,7 @@ async fn node_init_with_rules_added() {
             if let Rule::Reactive(rr) = r {
                 Some(RuleWithArgs::Reactive(ReactiveRuleWithArgs::new(
                     rr,
-                    VarValue::True,
+                    ActivationStatus::True,
                     None,
                 )))
             } else {
@@ -80,7 +80,7 @@ async fn rule_added() {
             if let Rule::Reactive(rr) = r {
                 Some(RuleWithArgs::Reactive(ReactiveRuleWithArgs::new(
                     rr,
-                    VarValue::True,
+                    ActivationStatus::True,
                     None,
                 )))
             } else {
@@ -114,7 +114,7 @@ async fn rule_added_same_name() {
             if let Rule::Reactive(rr) = r {
                 Some(RuleWithArgs::Reactive(ReactiveRuleWithArgs::new(
                     rr,
-                    VarValue::True,
+                    ActivationStatus::True,
                     None,
                 )))
             } else {
@@ -471,7 +471,7 @@ async fn test_fact_compound() {
     let res = node.get_atomic_condition(condition, None).await;
     assert!(res.is_ok());
     let res = res.unwrap();
-    assert_eq!(res, VarValue::False);
+    assert_eq!(res, ActivationStatus::False);
 }
 
 #[tokio::test]
@@ -521,7 +521,7 @@ async fn test_fact_sub_compound1() {
     assert!(res.is_ok());
 
     let res = res.unwrap();
-    assert_eq!(res, VarValue::True);
+    assert_eq!(res, ActivationStatus::True);
 
     let res = node
         .clone()
@@ -530,7 +530,7 @@ async fn test_fact_sub_compound1() {
     assert!(res.is_ok());
 
     let res = res.unwrap();
-    assert_eq!(res, VarValue::True);
+    assert_eq!(res, ActivationStatus::True);
 
     node.api.new_rules.notify(more_rules);
 
@@ -541,7 +541,7 @@ async fn test_fact_sub_compound1() {
     assert!(res.is_ok());
 
     let res = res.unwrap();
-    assert_eq!(res, VarValue::True);
+    assert_eq!(res, ActivationStatus::True);
 
     let res = node
         .clone()
@@ -550,7 +550,7 @@ async fn test_fact_sub_compound1() {
     assert!(res.is_ok());
 
     let res = res.unwrap();
-    assert_eq!(res, VarValue::False);
+    assert_eq!(res, ActivationStatus::False);
 }
 
 #[tokio::test]
@@ -600,7 +600,7 @@ async fn test_fact_sub_compound2() {
     assert!(res.is_ok());
 
     let res = res.unwrap();
-    assert_eq!(res, VarValue::True);
+    assert_eq!(res, ActivationStatus::True);
 
     let res = node
         .clone()
@@ -609,7 +609,7 @@ async fn test_fact_sub_compound2() {
     assert!(res.is_ok());
 
     let res = res.unwrap();
-    assert_eq!(res, VarValue::True);
+    assert_eq!(res, ActivationStatus::True);
 
     node.api.new_rules.notify(more_rules);
 
@@ -620,7 +620,7 @@ async fn test_fact_sub_compound2() {
     assert!(res.is_ok());
 
     let res = res.unwrap();
-    assert_eq!(res, VarValue::True);
+    assert_eq!(res, ActivationStatus::True);
 
     let res = node
         .clone()
@@ -629,7 +629,7 @@ async fn test_fact_sub_compound2() {
     assert!(res.is_ok());
 
     let res = res.unwrap();
-    assert_eq!(res, VarValue::True);
+    assert_eq!(res, ActivationStatus::True);
 }
 
 

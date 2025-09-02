@@ -42,6 +42,7 @@ pub fn lexer<'src>()
         just("{").to(Token::LeftCBracket),
         just("}").to(Token::RightCBracket),
         just(",").to(Token::Comma),
+        just("@").to(Token::At),
     ));
 
     // Reserved words and identifiers
@@ -56,7 +57,14 @@ pub fn lexer<'src>()
         _ => Token::Descriptor(identifier),
     });
 
-    let token = multi_symbol.or(dot_or_endrule).or(symbol).or(ident);
+    let number = text::int(10)
+        .try_map(|s: &str, span| {
+            s.parse::<u8>()
+                .map(Token::Number)
+                .map_err(|_| Rich::custom(span, "number out of range for u8"))
+        });
+
+    let token = multi_symbol.or(dot_or_endrule).or(symbol).or(number).or(ident);
 
     // Comments: skip lines beginning with `%`
     let comment = just("%")

@@ -7,6 +7,7 @@ edition = "2024"
 cl0_parser = { path = "./crates/cl0_parser" }
 cl0_node = { path = "./crates/cl0_node" }
 tokio = { version = "1", features = ["full"] }
+tonic-prost = "0.14.1"
 
 [workspace]
 members = [
@@ -21,3 +22,7 @@ path = "src/parser_main.rs"
 [[bin]]
 name = "cl0_node_repl"
 path = "src/main.rs"
+
+[[bin]]
+name = "cl0_node_web_server"
+path = "src/server.rs"

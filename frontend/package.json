@@ -1,0 +1,41 @@
+{
+	"name": "cl0-frontend",
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"preview": "vite preview"
+	},
+	"dependencies": {
+		"@bufbuild/protobuf": "^2.7.0",
+		"@connectrpc/connect": "^2.0.3",
+		"@connectrpc/connect-web": "^2.0.3",
+		"@emotion/react": "^11.14.0",
+		"@emotion/styled": "^11.14.1",
+		"@monaco-editor/react": "^4.7.0",
+		"@mui/icons-material": "^7.3.1",
+		"@mui/material": "^7.3.1",
+		"@mui/x-data-grid": "^8.10.0",
+		"@vitejs/plugin-react": "^5.0.0",
+		"@vitejs/plugin-react-swc": "^4.0.0",
+		"axios": "^1.11.0",
+		"mermaid": "^11.9.0",
+		"react": "^18.3.1",
+		"react-arborist": "^3.4.3",
+		"react-dom": "^18.3.1",
+		"react-hot-toast": "^2.5.2",
+		"zustand": "^5.0.7"
+	},
+	"devDependencies": {
+		"@tailwindcss/typography": "^0.5.16",
+		"@tailwindcss/vite": "^4.1.11",
+		"@types/react": "^19.1.9",
+		"@types/react-dom": "^19.1.7",
+		"eslint-plugin-readable-tailwind": "^3.0.0",
+		"prettier-plugin-tailwindcss": "^0.6.14",
+		"tailwindcss": "^4.1.11",
+		"typescript": "^5.9.2",
+		"vite": "^7.1.1"
+	}
+}
