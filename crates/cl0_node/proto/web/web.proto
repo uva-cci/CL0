@@ -1,0 +1,172 @@
+syntax = "proto3";
+
+package web;
+
+// ===== Shared types =====
+
+/// Identifies where an action/event takes place.
+message Scope {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    CONTROL_PLANE    = 1;
+    NODE_POOL        = 2;
+    NODE             = 3;
+  }
+  Kind kind = 1;
+  string id = 2; // control-plane-id, node-pool-id, or node-id
+}
+
+/// Empty type
+message Empty {}
+
+// ===== REPL =====
+
+/// Client subscribes to REPL output/history for a scope.
+message Join {
+  string user_id = 1;
+  Scope  scope   = 2;
+  string since_id = 3; // optional: resume from a known output id
+}
+
+/// Client sends a command to execute within a scope.
+message Input {
+  string user_id = 1;
+  Scope  scope   = 2;
+  string code    = 3;
+}
+
+/// A single REPL output.
+message Output {
+  string id      = 1; // server-assigned
+  Scope  scope   = 2;
+  string user_id = 3; // who triggered it (or "system")
+  string stdout  = 4;
+  int64  unix_ts = 5;
+}
+
+/// Batch of history items sent immediately after Join.
+message HistoryChunk {
+  Scope scope         = 1;
+  repeated Output items = 2;
+  bool done           = 3;
+}
+
+/// Acknowledgment for a submitted input.
+message Ack {
+  string input_echo = 1;
+  string output_id  = 2;
+}
+
+/// Informational notice (user joined/left, etc.).
+message ServerNotice {
+  Scope scope = 1;
+  string text = 2;
+}
+
+/// Server REPL stream event.
+message ServerEvent {
+  oneof kind {
+    HistoryChunk history = 1;
+    Output       output  = 2;
+    Ack          ack     = 3;
+    ServerNotice notice  = 4;
+  }
+}
+
+// ===== Node Status (for NODE scopes) =====
+
+message RuleStatus {
+  string namespace = 1;
+  string name      = 2;
+  bool enabled     = 3;
+}
+
+message VarStatus {
+  string name   = 1;
+  bool enabled  = 2;
+}
+
+message StatusSnapshot {
+  Scope scope               = 1; // must be KIND_NODE
+  repeated RuleStatus rules = 2;
+  repeated VarStatus vars   = 3;
+}
+
+// ===== Control Plane system tree =====
+
+message NodeDescriptor {
+  string id   = 1;
+  string name = 2;
+}
+
+message NodePoolDescriptor {
+  string id    = 1;
+  string name  = 2;
+  repeated NodeDescriptor nodes = 3;
+}
+
+message SystemTree {
+  string control_plane_id = 1;
+  repeated NodePoolDescriptor node_pools = 2;
+}
+
+// ===== Presence tracking =====
+
+message Presence {
+  string user_id = 1;
+  Scope  scope   = 2; // where the user is currently looking
+}
+
+message PresenceSnapshot {
+  repeated Presence users = 1;
+}
+
+message PresenceUpdate {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    JOINED           = 1;
+    LEFT             = 2;
+    MOVED            = 3;
+  }
+  Kind kind     = 1;
+  Presence user = 2;
+}
+
+message PresenceEvent {
+  oneof kind {
+    PresenceSnapshot snapshot = 1; // sent immediately after subscribe
+    PresenceUpdate   update   = 2; // live deltas
+  }
+}
+
+// ===== Services =====
+
+service ReplService {
+  /// Subscribe to REPL events (history + live output + notices).
+  rpc Subscribe(Join) returns (stream ServerEvent);
+
+  /// Send a command to execute within a scope.
+  rpc SendCommand(Input) returns (Ack);
+}
+
+service StatusService {
+  /// Unary snapshot of current rule/var status (for nodes).
+  rpc GetStatus(Scope) returns (StatusSnapshot);
+}
+
+service ControlPlaneService {
+  /// Stream updates of the system tree (node pools/nodes).
+  /// Typically only called with Scope{CONTROL_PLANE}.
+  rpc SubscribeTree(Scope) returns (stream SystemTree);
+}
+
+service PresenceService {
+  /// Stream presence events (initial snapshot + live updates).
+  rpc Subscribe(Empty) returns (stream PresenceEvent);
+
+  /// User explicitly joins a scope.
+  rpc Join(Presence) returns (Empty);
+
+  /// User explicitly leaves a scope.
+  rpc Leave(Presence) returns (Empty);
+}

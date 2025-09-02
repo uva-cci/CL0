@@ -1,118 +1,11 @@
-use cl0_parser::ast::{CaseRule, DeclarativeRule, FactRule, ReactiveRule, Rule};
+use cl0_parser::ast::Rule;
 use dashmap::{DashMap, DashSet};
 use futures::future::join_all;
-use std::{error::Error, fmt, sync::Arc};
+use std::{error::Error, sync::Arc};
 use tokio::{sync::RwLock, task::JoinHandle};
 use async_recursion::async_recursion;
 
-/// Represents a non-reactive rule, which can be declarative, case-based, or fact-based.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum NonReactiveRule {
-    Fact(FactRule),
-}
-
-/// Represents a reactive rule with an optional alias and a value.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ReactiveRuleWithArgs {
-    pub rule: ReactiveRule,
-    pub value: VarValue,
-    pub alias: Option<Vec<String>>,
-}
-impl ReactiveRuleWithArgs {
-    pub fn new(rule: ReactiveRule, value: VarValue, alias: Option<Vec<String>>) -> Self {
-        ReactiveRuleWithArgs { rule, value, alias }
-    }
-}
-
-/// Represents a FactRule with an optional value.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FactRuleWithArgs {
-    pub rule: FactRule,
-    pub value: Option<VarValue>,
-}
-impl FactRuleWithArgs {
-    pub fn new(rule: FactRule, value: Option<VarValue>) -> Self {
-        FactRuleWithArgs { rule, value }
-    }
-}
-
-/// Represents a rule with extra arguments.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum RuleWithArgs {
-    Declarative(DeclarativeRule),
-    Case(CaseRule),
-    Fact(FactRuleWithArgs),
-    Reactive(ReactiveRuleWithArgs),
-}
-impl From<RuleWithArgs> for Rule {
-    fn from(rwa: RuleWithArgs) -> Rule {
-        match rwa {
-            RuleWithArgs::Declarative(d) => Rule::Declarative(d),
-            RuleWithArgs::Case(c) => Rule::Case(c),
-            RuleWithArgs::Fact(FactRuleWithArgs { rule, .. }) => Rule::Fact(rule),
-            RuleWithArgs::Reactive(ReactiveRuleWithArgs { rule, .. }) => Rule::Reactive(rule),
-        }
-    }
-}
-impl From<Rule> for RuleWithArgs {
-    fn from(rw: Rule) -> RuleWithArgs {
-        match rw {
-            Rule::Declarative(d) => RuleWithArgs::Declarative(d),
-            Rule::Case(c) => RuleWithArgs::Case(c),
-            Rule::Fact(fr) => RuleWithArgs::Fact(FactRuleWithArgs {
-                rule: fr,
-                value: None, // Default value for fact rules
-            }),
-            Rule::Reactive(rr) => RuleWithArgs::Reactive(ReactiveRuleWithArgs {
-                rule: rr,
-                value: VarValue::True, // Default value for reactive rules
-                alias: None, // Default alias
-            }),
-        }
-    }
-}
-
-/// The possible values a condition variable can take in the system.
-///
-/// - `True` and `False` are concrete boolean states.
-/// - `Unknown` represents a value that is not yet determined; callers can choose to
-///   treat it differently (e.g., continue or fail) depending on context.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum VarValue {
-    True,
-    False, // Inactive
-    Unknown,
-}
-
-impl VarValue {
-    /// Returns `Some(bool)` for concrete values, or `None` for `Unknown`.
-    pub fn as_option_bool(&self) -> Option<bool> {
-        match self {
-            VarValue::True => Some(true),
-            VarValue::False => Some(false),
-            VarValue::Unknown => None,
-        }
-    }
-
-    /// Converts into a boolean, returning an error for ambiguous states.
-    pub fn to_bool(&self) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        self.as_option_bool()
-            .ok_or(Box::<dyn Error + Send + Sync>::from(format!(
-                "Not a boolean value: {}",
-                self
-            )))
-    }
-}
-
-impl fmt::Display for VarValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            VarValue::True => write!(f, "True"),
-            VarValue::False => write!(f, "False"),
-            VarValue::Unknown => write!(f, "Unknown"),
-        }
-    }
-}
+use crate::types::ActivationStatus;
 
 /// From a set of status values, return what the overall status is:
 /// - If any are `Unknown`, return an error.
@@ -120,18 +13,18 @@ impl fmt::Display for VarValue {
 /// - If any are `False`, return `False`.
 /// If no valid status is found, return an error.
 pub fn overall_status_from_set(
-    statuses: &DashSet<VarValue>,
-) -> Result<VarValue, Box<dyn Error + Send + Sync>> {
-    if statuses.contains(&VarValue::Unknown) {
+    statuses: &DashSet<ActivationStatus>,
+) -> Result<ActivationStatus, Box<dyn Error + Send + Sync>> {
+    if statuses.contains(&ActivationStatus::Conflict) {
         return Err(Box::<dyn Error + Send + Sync>::from(
             "Overall status is unknown due to at least one Unknown value",
         ));
     }
-    if statuses.contains(&VarValue::False) {
-        return Ok(VarValue::False);
+    if statuses.contains(&ActivationStatus::False) {
+        return Ok(ActivationStatus::False);
     }
-    if statuses.contains(&VarValue::True) {
-        return Ok(VarValue::True);
+    if statuses.contains(&ActivationStatus::True) {
+        return Ok(ActivationStatus::True);
     }
     Err(Box::<dyn Error + Send + Sync>::from(
         "No valid status found",

@@ -332,3 +332,40 @@ impl fmt::Display for Compound {
         }
     }
 }
+
+// Represents a directive meaning different things
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Directive {
+    Scale { number: u8, policy: Compound },
+    Include(String),
+    Exclude(String),
+    Interleaving,
+    ExternalVar(String),
+    ExternalEvent(PrimitiveEvent),
+}
+
+/// Implements the Display trait for Compound, allowing it to be formatted as a string.
+impl fmt::Display for Directive {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Directive::Scale { number, policy } => {
+                write!(f, "@scale({})\n{}", number, policy)
+            }
+            Directive::Include(s) => {
+                write!(f, "@include({})", s)
+            }
+            Directive::Exclude(s) => {
+                write!(f, "@exclude({})", s)
+            }
+            Directive::Interleaving => {
+                write!(f, "@interleaving")
+            }
+            Directive::ExternalVar(s) => {
+                write!(f, "@external({})", s)
+            }
+            Directive::ExternalEvent(pe) => {
+                write!(f, "@external({})", pe)
+            }
+        }
+    }
+}

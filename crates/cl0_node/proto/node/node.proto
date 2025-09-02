@@ -1,0 +1,21 @@
+syntax = "proto3";
+package node;
+
+import "common/types.proto";
+import "common/rules.proto";
+
+service NodeAgent {
+    rpc ApplyRule(common.Rule) returns (common.RuleResult);
+    rpc GetState(StateRequest) returns (NodeState);
+    rpc GetHistory(HistoryRequest) returns (RuleHistory);
+}
+
+message StateRequest {}
+message NodeState {
+    repeated common.Rule rules = 1;
+}
+
+message HistoryRequest {}
+message RuleHistory {
+    repeated common.RuleResult history = 1;
+}

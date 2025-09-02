@@ -1,0 +1,40 @@
+syntax = "proto3";
+package control_plane;
+
+import "common/types.proto";
+import "common/rules.proto";
+
+service ControlPlane {
+    rpc RegisterNode(NodeRegistration) returns (NodeAck);
+    rpc Heartbeat(NodeHeartbeat) returns (HeartbeatAck);
+    rpc ForwardMessage(ControlMessage) returns (Ack);
+    rpc RequestRuleExecution(RuleExecutionRequest) returns (common.RuleResult);
+}
+
+message NodeRegistration {
+    string hostname = 1;
+    string version = 2;
+    optional string pool = 3;
+}
+
+message NodeAck {
+    common.NodeId id = 1;
+}
+
+message NodeHeartbeat {
+    common.NodeId id = 1;
+    int64 timestamp = 2;
+}
+
+message ControlMessage {
+    common.NodeId sender = 1;
+    string message = 2;
+}
+
+message RuleExecutionRequest {
+    common.NodeId target = 1;
+    common.Rule rule = 2;
+}
+
+message HeartbeatAck {}
+message Ack {}

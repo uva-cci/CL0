@@ -5,8 +5,7 @@ use tracing::{debug, error, info, instrument, warn};
 
 use crate::{
     api::ApiRoute,
-    node::Node,
-    utils::{ReactiveRuleWithArgs, RuleWithArgs, VarValue},
+    node::Node, types::{ActivationStatus, ReactiveRuleWithArgs, RuleWithArgs},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -31,7 +30,7 @@ pub struct EventHandlerApi {
 #[derive(Debug)]
 pub struct EventHandler {
     pub id: String,
-    rules: Arc<DashMap<ReactiveRuleKey, VarValue>>,
+    rules: Arc<DashMap<ReactiveRuleKey, ActivationStatus>>,
     pub api: EventHandlerApi,
 }
 
@@ -39,7 +38,7 @@ impl EventHandler {
     /// Constructs a new handler seeded with one initial reactive rule.
     pub fn new(node: Arc<Node>, rule_with_args: ReactiveRuleWithArgs) -> Self {
         // Each rule carries a status (unknown/true/false) that can be aggregated.
-        let rules: Arc<DashMap<ReactiveRuleKey, VarValue>> = Arc::new(DashMap::new());
+        let rules: Arc<DashMap<ReactiveRuleKey, ActivationStatus>> = Arc::new(DashMap::new());
         let id = rule_with_args.rule.get_identifier().clone();
 
         // Insert the initial rule with an unknown status
@@ -90,7 +89,7 @@ impl EventHandler {
                     // Log the rule being processed
                     let rule_desc = rule_with_args.rule.clone().to_string();
                     debug!("Attempting to process rule: {}", rule_desc);
-                    if rule_with_args.value.clone() == VarValue::False {
+                    if rule_with_args.value.clone() == ActivationStatus::False {
                         debug!("Skipping disabled rule: {:?}", rule_with_args);
                         continue; // Skip rules that are false
                     }
@@ -112,7 +111,7 @@ impl EventHandler {
                 Ok(rules
                     .iter()
                     .filter_map(|entry| {
-                        if !all && entry.value().clone() == VarValue::False {
+                        if !all && entry.value().clone() == ActivationStatus::False {
                             debug!("Skipping disabled rule: {:?}", entry.key());
                             return None; // Skip rules that are false
                         }
@@ -213,19 +212,19 @@ impl EventHandler {
     }
 
     /// Aggregate the statuses of all contained rules into a single effective state.
-    pub async fn state(&self) -> VarValue {
-        let mut statuses: HashSet<VarValue> = HashSet::new();
+    pub async fn state(&self) -> ActivationStatus {
+        let mut statuses: HashSet<ActivationStatus> = HashSet::new();
         for rule in self.rules.iter() {
             statuses.insert(rule.value().clone());
         }
         if statuses.len() == 1 {
-            statuses.into_iter().next().unwrap_or(VarValue::Unknown)
-        } else if statuses.contains(&VarValue::True) {
-            VarValue::True
-        } else if statuses.contains(&VarValue::False) {
-            VarValue::False
+            statuses.into_iter().next().unwrap_or(ActivationStatus::Conflict)
+        } else if statuses.contains(&ActivationStatus::True) {
+            ActivationStatus::True
+        } else if statuses.contains(&ActivationStatus::False) {
+            ActivationStatus::False
         } else {
-            VarValue::Unknown
+            ActivationStatus::Conflict
         }
     }
 }

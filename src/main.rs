@@ -2,7 +2,7 @@ use std::{
     io::{self, Write}, sync::Arc
 };
 
-use cl0_node::{node::Node, utils::{RuleWithArgs, VarValue}};
+use cl0_node::{node::Node, types::{RuleWithArgs, ActivationStatus}};
 use cl0_parser::{ast::Compound, lex_and_parse_compound, lex_and_parse_safe};
 
 // ANSI color codes
@@ -202,7 +202,7 @@ async fn main() {
                                         Some(ns) => ns.join(".") + ".",
                                         None => "".to_string(),
                                     };
-                                    println!("{}    {}{}{}{}: {}{}{}", BLUE, namespace_string, RESET,rule.rule.to_string().trim_end_matches("."), YELLOW, (if rule.value == VarValue::True { GREEN } else { RED }), rule.value, RESET);
+                                    println!("{}    {}{}{}{}: {}{}{}", BLUE, namespace_string, RESET,rule.rule.to_string().trim_end_matches("."), YELLOW, (if rule.value == ActivationStatus::True { GREEN } else { RED }), rule.value, RESET);
                                 }
                             }
                         }
@@ -220,7 +220,7 @@ async fn main() {
                     for var in vars_res {
                         let guard_key = var.key().clone();
                         let guard_value = var.value().clone();
-                        println!("{}    {}: {}{}{}", BLUE, guard_key, (if guard_value == VarValue::True { GREEN } else { RED }), guard_value, RESET);
+                        println!("{}    {}: {}{}{}", BLUE, guard_key, (if guard_value == ActivationStatus::True { GREEN } else { RED }), guard_value, RESET);
                     }
                     println!("==========================");
 

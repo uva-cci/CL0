@@ -14,8 +14,9 @@ use tracing::{debug, error, info, instrument, warn};
 
 use crate::api::ApiRoute;
 use crate::event_handler::EventHandler;
+use crate::types::{ActivationStatus, FactRuleWithArgs, ReactiveRuleWithArgs, RuleWithArgs};
 use crate::utils::{
-    AliasNamespace, FactRuleWithArgs, ReactiveRuleWithArgs, RuleWithArgs, VarValue,
+    AliasNamespace,
     collect_conjunction, get_parts, overall_status_from_set,
 };
 use crate::visitor::AstVisitor;
@@ -30,7 +31,7 @@ pub struct NodeApi {
 /// Core node that maintains variable state, aliases, and event handlers.
 #[derive(Debug)]
 pub struct Node {
-    pub vars: Arc<DashMap<PrimitiveCondition, VarValue>>,
+    pub vars: Arc<DashMap<PrimitiveCondition, ActivationStatus>>,
     pub aliases: Arc<DashMap<String, Arc<AliasNamespace>>>,
     pub event_handlers: Arc<DashMap<String, Arc<EventHandler>>>,
     pub api: NodeApi,
@@ -42,7 +43,7 @@ impl Node {
         // Use `Arc::new_cyclic` to get a self-referential structure safely
         let node = Arc::new_cyclic(|weak_node: &Weak<Node>| {
             // Shared internal state
-            let vars: Arc<DashMap<PrimitiveCondition, VarValue>> = Arc::new(DashMap::new());
+            let vars: Arc<DashMap<PrimitiveCondition, ActivationStatus>> = Arc::new(DashMap::new());
             let aliases: Arc<DashMap<String, Arc<AliasNamespace>>> = Arc::new(DashMap::new());
             let event_handlers: Arc<DashMap<String, Arc<EventHandler>>> = Arc::new(DashMap::new());
 
@@ -108,7 +109,7 @@ impl Node {
             }
             for ac in atomic_conditions {
                 // Store each atomic condition with an initial value of False
-                let _ = Self::store_atomic_condition(node.clone(), ac, VarValue::False, None, true)
+                let _ = Self::store_atomic_condition(node.clone(), ac, ActivationStatus::False, None, true)
                     .await;
             }
 
@@ -120,7 +121,7 @@ impl Node {
                 .filter_map(|rule| match rule {
                     Rule::Reactive(r) => Some(RuleWithArgs::Reactive(ReactiveRuleWithArgs {
                         rule: r,
-                        value: VarValue::True,
+                        value: ActivationStatus::True,
                         alias: None,
                     })),
                     Rule::Fact(FactRule { condition }) => {
@@ -248,16 +249,16 @@ impl Node {
                     Some(eh_entry) => {
                         let handler = eh_entry.value();
                         match handler.state().await {
-                            VarValue::True => {
+                            ActivationStatus::True => {
                                 debug!("Processing action for event handler: {}", desc);
                                 let action_res = handler.api.process_action.call(()).await;
                                 action_res.map_err(|e| e)
                             }
-                            VarValue::False => {
+                            ActivationStatus::False => {
                                 info!("Inactive variable was silently not executed: {}", desc);
                                 Ok(true)
                             }
-                            VarValue::Unknown => Ok(true),
+                            ActivationStatus::Conflict => Ok(true),
                         }
                     }
                 },
@@ -266,7 +267,7 @@ impl Node {
                     match alias_rules {
                         Err(_) => {
                             debug!("No alias found for atomic condition: {:?}", ac);
-                            self.store_atomic_condition(ac, VarValue::True, None, true)
+                            self.store_atomic_condition(ac, ActivationStatus::True, None, true)
                                 .await
                         }
                         Ok((rules, ns)) => {
@@ -280,7 +281,7 @@ impl Node {
                                         rules: rules.clone(),
                                         alias: None,
                                     }),
-                                    VarValue::True,
+                                    ActivationStatus::True,
                                     Some(ns),
                                     true,
                                 )
@@ -316,7 +317,7 @@ impl Node {
                     match alias_rules {
                         Err(_) => {
                             debug!("No alias found for atomic condition: {:?}", ac);
-                            self.store_atomic_condition(ac, VarValue::False, None, true)
+                            self.store_atomic_condition(ac, ActivationStatus::False, None, true)
                                 .await
                         }
                         Ok((rules, ns)) => {
@@ -330,7 +331,7 @@ impl Node {
                                         rules: rules.clone(),
                                         alias: None,
                                     }),
-                                    VarValue::False,
+                                    ActivationStatus::False,
                                     Some(ns),
                                     false,
                                 )
@@ -550,7 +551,7 @@ impl Node {
     pub async fn store_atomic_condition(
         self: Arc<Self>,
         condition: AtomicCondition,
-        value: VarValue,
+        value: ActivationStatus,
         var_namespace: Option<Vec<String>>,
         override_entries: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
@@ -663,7 +664,7 @@ impl Node {
                 };
 
                 // Handle sub-compound conditions
-                self.store_atomic_condition(*condition, VarValue::False, Some(n), override_entries)
+                self.store_atomic_condition(*condition, ActivationStatus::False, Some(n), override_entries)
                     .await
             }
         }
@@ -680,7 +681,7 @@ impl Node {
         self: Arc<Self>,
         condition: AtomicCondition,
         var_namespace: Option<Vec<String>>,
-    ) -> Result<VarValue, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ActivationStatus, Box<dyn std::error::Error + Send + Sync>> {
         // Log the condition being processed
         let cond = condition.clone().to_string();
         debug!("Getting atomic condition: {}", cond);
@@ -690,7 +691,7 @@ impl Node {
             AtomicCondition::Primitive(prim_cond) => {
                 let v_ref = self.vars.get(&prim_cond);
                 match v_ref {
-                    None => Ok(VarValue::Unknown),
+                    None => Ok(ActivationStatus::Conflict),
                     Some(entry) => Ok(entry.value().clone()),
                 }
             }
@@ -742,7 +743,7 @@ impl Node {
                         .collect::<Vec<Rule>>();
 
                     // Need to check every rule in the compound to determine the overall value (Only checking for reactive rules currently)
-                    let statuses: DashSet<VarValue> = DashSet::new();
+                    let statuses: DashSet<ActivationStatus> = DashSet::new();
                     for rule in matching_rules {
                         match rule {
                             Rule::Reactive(rr) => {
@@ -751,7 +752,7 @@ impl Node {
                                     .clone()
                                     .get_rule_status(&ReactiveRuleWithArgs::new(
                                         rr,
-                                        VarValue::True,
+                                        ActivationStatus::True,
                                         var_namespace_copy.clone(),
                                     ))
                                     .await?;
@@ -790,7 +791,7 @@ impl Node {
     async fn get_rule_status(
         self: Arc<Self>,
         rule: &ReactiveRuleWithArgs,
-    ) -> Result<VarValue, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ActivationStatus, Box<dyn std::error::Error + Send + Sync>> {
         // Log the rule being processed
         let rule_desc = rule.rule.to_string();
         debug!("Getting status for rule: {}", rule_desc);
@@ -838,14 +839,14 @@ impl Node {
     fn update_var(
         self: Arc<Self>,
         var: PrimitiveCondition,
-        value: VarValue,
+        value: ActivationStatus,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         // Log the variable being updated
         let var_desc = var.to_string();
         debug!("Updating variable: {} to value: {:?}", var_desc, value);
 
         // Check if the value is Unknown, which is not allowed
-        if value == VarValue::Unknown {
+        if value == ActivationStatus::Conflict {
             return Err(Box::<dyn Error + Send + Sync>::from(
                 "Cannot update variable to Unknown",
             ));
@@ -912,13 +913,13 @@ impl Node {
                 match &rule.condition {
                     AtomicCondition::Primitive(_) => {
                         // By default, primitive conditions are set to True
-                        let real_val = value.clone().map_or(VarValue::True, |v| v.clone());
+                        let real_val = value.clone().map_or(ActivationStatus::True, |v| v.clone());
                         self.store_atomic_condition(rule.condition.clone(), real_val, None, true)
                             .await
                     }
                     _ => {
                         // By default, compound and sub-compound rules are set to false
-                        let real_val = value.clone().map_or(VarValue::False, |v| v.clone());
+                        let real_val = value.clone().map_or(ActivationStatus::False, |v| v.clone());
                         self.store_atomic_condition(rule.condition.clone(), real_val, None, true)
                             .await
                     }

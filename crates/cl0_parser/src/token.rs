@@ -65,6 +65,12 @@ pub enum Token<'src> {
 
     /// `as` keyword for aliasing, e.g., `foo as bar`
     As,
+
+    /// `@` used for directives, e.g., `@scale()`
+    At,
+
+    /// A numeric literal, e.g., `42`
+    Number(u8),
 }
 
 impl<'src> fmt::Display for Token<'src> {
@@ -93,6 +99,8 @@ impl<'src> fmt::Display for Token<'src> {
             Token::ThinArrow => write!(f, "->"),
             Token::Descriptor(s) => write!(f, "\"{}\"", s),
             Token::As => write!(f, "as"),
+            Token::At => write!(f, "@"),
+            Token::Number(n) => write!(f, "{}", n),
         }
     }
 }

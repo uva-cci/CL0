@@ -325,14 +325,14 @@ where
 
     let declarative_rule = cc_rule.or(ct_rule).labelled("declarative rule");
 
-    // Case-based rule:     => action 
+    // Case-based rule:     => action
     let case_rule = just(Token::FatArrow)
         .ignore_then(action_parser.clone())
         .then_ignore(just(Token::EndRule))
         .map_with(|(action, _), span| (Rule::Case(CaseRule { action }), span.span()))
         .labelled("case");
 
-    // Fact-based rule:     condition 
+    // Fact-based rule:     condition
     let fact_rule = atomic_condition_parser
         .clone()
         .then_ignore(just(Token::EndRule))
@@ -470,4 +470,70 @@ where
         .collect::<Vec<_>>()
         .then_ignore(end())
         .labelled("program")
+}
+
+/// A Parser for directives in the CL0 language.
+pub fn directive_parser<'tokens, 'src: 'tokens, I>()
+-> impl Parser<'tokens, I, Spanned<Directive>, extra::Err<Rich<'tokens, Token<'src>, Span>>> + Clone
+where
+    I: ValueInput<'tokens, Token = Token<'src>, Span = Span>,
+{
+    let descriptor = select! { Token::Descriptor(var) => var };
+
+    let inside_params = descriptor
+        .clone()
+        .delimited_by(just(Token::LeftParenthesis), just(Token::RightParenthesis));
+
+    let scale = just(Token::At)
+        .ignore_then(just(Token::Descriptor("scale")))
+        .then(
+            (select! { Token::Number(num) => num })
+                .delimited_by(just(Token::LeftParenthesis), just(Token::RightParenthesis)),
+        )
+        .then(compound_parser().clone())
+        .map_with(|((_, num), (comp, _)), s| {
+            (
+                Directive::Scale {
+                    number: num,
+                    policy: comp,
+                },
+                s.span(),
+            )
+        });
+
+    let include = just(Token::At)
+        .ignore_then(just(Token::Descriptor("include")))
+        .then(inside_params.clone())
+        .map_with(|(_, desc), s| (Directive::Include(desc.to_string()), s.span()));
+
+    let exclude = just(Token::At)
+        .ignore_then(just(Token::Descriptor("exclude")))
+        .then(inside_params.clone())
+        .map_with(|(_, desc), s| (Directive::Exclude(desc.to_string()), s.span()));
+
+    let interleaving = just(Token::At)
+        .ignore_then(just(Token::Descriptor("interleaving")))
+        .map_with(|_, s| (Directive::Interleaving, s.span()));
+
+    let external_var = just(Token::At)
+        .ignore_then(just(Token::Descriptor("external")))
+        .then(inside_params.clone())
+        .map_with(|(_, desc), s| (Directive::ExternalVar(desc.to_string()), s.span()));
+
+    let external_event = just(Token::At)
+        .ignore_then(just(Token::Descriptor("external")))
+        .then(
+            primitive_event_parser()
+                .clone()
+                .delimited_by(just(Token::LeftParenthesis), just(Token::RightParenthesis)),
+        )
+        .map_with(|(_, (pe, _)), s| (Directive::ExternalEvent(pe), s.span()));
+
+    scale
+        .or(include)
+        .or(exclude)
+        .or(interleaving)
+        .or(external_event)
+        .or(external_var)
+        .labelled("directive")
 }
